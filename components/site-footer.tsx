@@ -7,13 +7,13 @@ export function SiteFooter() {
       <Container className="flex flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
         <div>CNC Image Auto Crop Tool. Built for deployable SaaS workflows.</div>
         <div className="flex gap-5">
-          <Link href="/tool" className="transition hover:text-white">
+          <Link href="/tool" className="transition hover:text-sky-100">
             Tool
           </Link>
-          <Link href="/pricing" className="transition hover:text-white">
+          <Link href="/pricing" className="transition hover:text-sky-100">
             Pricing
           </Link>
-          <Link href="/sign-in" className="transition hover:text-white">
+          <Link href="/sign-in" className="transition hover:text-sky-100">
             Auth Ready
           </Link>
         </div>
@@ -21,4 +21,3 @@ export function SiteFooter() {
     </footer>
   );
 }
-
