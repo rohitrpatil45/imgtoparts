@@ -30,14 +30,17 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${bodyFont.variable} ${headingFont.variable} h-full bg-[#0b0f1a]`}
+      className={`${bodyFont.variable} ${headingFont.variable} h-full bg-slate-950`}
     >
-      <body className="min-h-full bg-[#0b0f1a] text-slate-100 antialiased">
-        <div className="relative min-h-screen overflow-hidden bg-[#0b0f1a]">
-          <div className="absolute inset-0 -z-30 bg-[linear-gradient(180deg,#0b0f1a_0%,#0b0f1a_32%,#0e1324_100%)]" />
-          <div className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_24%),radial-gradient(circle_at_85%_12%,rgba(168,85,247,0.18),transparent_24%),radial-gradient(circle_at_50%_40%,rgba(59,130,246,0.08),transparent_32%)]" />
-          <div className="absolute inset-0 -z-10 bg-[linear-gradient(rgba(148,163,184,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.09)_1px,transparent_1px)] bg-[size:72px_72px] opacity-25 [mask-image:radial-gradient(circle_at_center,black,transparent_85%)]" />
-          <div className="absolute left-1/2 top-0 -z-10 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-white/5 blur-[180px]" />
+      <body className="min-h-full bg-slate-950 text-slate-100 antialiased">
+        <div
+          className="min-h-screen"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 24%), radial-gradient(circle at 85% 10%, rgba(59, 130, 246, 0.12), transparent 26%), linear-gradient(180deg, #020617 0%, #020617 35%, #0f172a 100%)"
+          }}
+        >
+          <div className="absolute inset-x-0 top-0 -z-10 h-[28rem] bg-[linear-gradient(120deg,rgba(255,255,255,0.08),rgba(255,255,255,0))]" />
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />
