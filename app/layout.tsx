@@ -30,17 +30,25 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${bodyFont.variable} ${headingFont.variable} h-full bg-slate-950`}
+      className={`${bodyFont.variable} ${headingFont.variable} h-full bg-[#0b0f1a]`}
     >
-      <body className="min-h-full bg-slate-950 text-slate-100 antialiased">
+      <body className="min-h-full bg-[#0b0f1a] text-slate-100 antialiased">
         <div
-          className="min-h-screen"
+          className="relative min-h-screen overflow-hidden"
           style={{
             backgroundImage:
-              "radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 24%), radial-gradient(circle at 85% 10%, rgba(59, 130, 246, 0.12), transparent 26%), linear-gradient(180deg, #020617 0%, #020617 35%, #0f172a 100%)"
+              "radial-gradient(circle at top left, rgba(59,130,246,0.18), transparent 24%), radial-gradient(circle at 82% 12%, rgba(139,92,246,0.16), transparent 28%), linear-gradient(180deg, #0b0f1a 0%, #0b1120 45%, #0f172a 100%)"
           }}
         >
-          <div className="absolute inset-x-0 top-0 -z-10 h-[28rem] bg-[linear-gradient(120deg,rgba(255,255,255,0.08),rgba(255,255,255,0))]" />
+          <div className="absolute inset-x-0 top-0 -z-10 h-[32rem] bg-[linear-gradient(120deg,rgba(255,255,255,0.08),rgba(255,255,255,0))]" />
+          <div
+            className="pointer-events-none absolute inset-0 -z-10 opacity-40"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(148,163,184,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.04) 1px, transparent 1px)",
+              backgroundSize: "120px 120px"
+            }}
+          />
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />

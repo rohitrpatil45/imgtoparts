@@ -9,20 +9,26 @@ const links = [
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b0f1a]/75 backdrop-blur-xl">
       <Container className="flex items-center justify-between py-4">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-400/10 text-cyan-100">
-            <span className="font-[var(--font-heading)] text-lg font-semibold">
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 text-blue-50 shadow-[0_18px_45px_rgba(76,81,191,0.25)]"
+            style={{
+              backgroundImage:
+                "linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.2))"
+            }}
+          >
+            <span className="font-[var(--font-heading)] text-base font-semibold tracking-[0.16em]">
               CNC
             </span>
           </div>
           <div>
-            <div className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-[0.2em] text-cyan-100">
+            <div className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-[0.2em] text-blue-50">
               CNC Image Auto Crop Tool
             </div>
             <div className="text-xs text-slate-400">
-              Production-ready image prep for designers
+              Smart crops for premium CNC visuals
             </div>
           </div>
         </Link>
@@ -42,15 +48,15 @@ export function SiteHeader() {
         <div className="flex items-center gap-3">
           <Link
             href="/sign-in"
-            className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition duration-300 hover:border-cyan-300/30 hover:bg-white/10 sm:inline-flex"
+            className="hidden rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition duration-300 hover:border-white/20 hover:bg-white/10 sm:inline-flex"
           >
             Sign In
           </Link>
           <Link
             href="/tool"
-            className="inline-flex rounded-full bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300"
+            className="inline-flex rounded-xl bg-gradient-to-r from-blue-500 via-violet-500 to-indigo-400 px-4 py-2 text-sm font-semibold text-white transition duration-300 hover:-translate-y-0.5"
           >
-            Launch App
+            Open App
           </Link>
         </div>
       </Container>

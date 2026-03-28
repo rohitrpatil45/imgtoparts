@@ -1,100 +1,77 @@
 import Link from "next/link";
+import { HeroWorkbench } from "@/components/marketing/cnc-visuals";
 import { Container } from "@/components/ui/container";
 
-const highlights = [
-  "Drag-and-drop multi-image upload",
-  "Server-side Sharp processing",
-  "One-click ZIP exports"
+const heroStats = [
+  { value: "5", label: "ready-to-export crops" },
+  { value: "<10s", label: "from upload to review" },
+  { value: "1 click", label: "batch delivery to your team" }
 ];
 
 export function HeroPanel() {
   return (
-    <Container className="pt-10 sm:pt-14">
-      <div className="grid items-center gap-8 lg:grid-cols-[1.08fr_0.92fr]">
-        <div className="space-y-6">
-          <p className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200">
-            Production-ready SaaS
-          </p>
-          <div className="space-y-4">
-            <h1 className="max-w-4xl font-[var(--font-heading)] text-5xl font-semibold leading-tight text-white sm:text-6xl">
-              Crop CNC reference imagery into clean production-ready views.
-            </h1>
-            <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-              CNC Image Auto Crop Tool turns raw images into quadrant crops and
-              center-detail shots with a premium dashboard built for fast design
-              review and export.
-            </p>
+    <section className="relative overflow-hidden py-20 sm:py-28">
+      {/* background glow */}
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.25),transparent_60%)]" />
+
+      <Container>
+        <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
+
+          {/* badge */}
+          <div className="mb-6 inline-flex rounded-full border border-blue-300/20 bg-blue-300/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.34em] text-blue-100">
+            AI image prep for CNC teams
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          {/* heading */}
+          <h1 className="font-[var(--font-heading)] text-4xl font-semibold leading-tight text-white sm:text-5xl lg:text-6xl xl:text-7xl">
+            Turn 1 Image into{" "}
+            <span className="gradient-text font-bold">
+              5 Professional Shots
+            </span>{" "}
+            in Seconds
+          </h1>
+
+          {/* subtext */}
+          <p className="mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
+            Auto crop, smart zoom, and generate marketplace-ready images for CNC,
+            Etsy, and 3D creators. Save hours on manual editing.
+          </p>
+
+          {/* buttons */}
+          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
             <Link
               href="/tool"
-              className="inline-flex items-center justify-center rounded-full bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300"
+              className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-500 via-violet-500 to-indigo-400 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(76,81,191,0.35)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_26px_60px_rgba(76,81,191,0.45)]"
             >
-              Launch the Tool
+              Get Started Free →
             </Link>
+
             <Link
-              href="/pricing"
-              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition duration-300 hover:border-cyan-300/30 hover:bg-white/10"
+              href="#showcase"
+              className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-6 py-3.5 text-sm font-semibold text-slate-100 backdrop-blur transition duration-300 hover:border-white/20 hover:bg-white/10"
             >
-              View Pricing UI
+              View Demo
             </Link>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            {highlights.map((highlight) => (
+          {/* stats */}
+          <div className="mt-10 grid w-full max-w-3xl gap-4 sm:grid-cols-3">
+            {heroStats.map((item) => (
               <div
-                key={highlight}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 shadow-premium backdrop-blur-xl"
+                key={item.label}
+                className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.3)]"
               >
-                {highlight}
+                <div className="text-2xl font-semibold text-white">
+                  {item.value}
+                </div>
+                <div className="mt-1 text-sm text-slate-300">
+                  {item.label}
+                </div>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 shadow-premium backdrop-blur-xl">
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  Export Overview
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Preview the production pack before delivery
-                </p>
-              </div>
-              <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">
-                Online
-              </span>
-            </div>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {[
-                "Original preview",
-                "Top-left crop",
-                "Top-right crop",
-                "Bottom-left crop",
-                "Bottom-right crop",
-                "Center detail"
-              ].map((item, index) => (
-                <div
-                  key={item}
-                  className={`rounded-3xl border border-white/10 p-4 ${
-                    index === 0
-                      ? "bg-gradient-to-br from-cyan-400/20 to-blue-500/10 sm:col-span-2"
-                      : "bg-white/5"
-                  }`}
-                >
-                  <div className="aspect-[4/3] rounded-2xl border border-white/10 bg-slate-900/80" />
-                  <p className="mt-3 text-sm text-slate-200">{item}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </Container>
+      </Container>
+    </section>
   );
 }
-
