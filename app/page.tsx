@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArtworkViewport } from "@/components/marketing/cnc-visuals";
 import { HeroPanel } from "@/components/marketing/hero-panel";
 import { Container } from "@/components/ui/container";
+import OutputPreview from "@/components/marketing/OutputPreview";
 
 const problems = [
   {
@@ -69,6 +70,7 @@ export default function LandingPage() {
   return (
     <div className="pb-20 sm:pb-24">
       <HeroPanel />
+      <OutputPreview />
 
       <Container className="mt-20 sm:mt-24">
         <section className="space-y-8">
@@ -106,7 +108,7 @@ export default function LandingPage() {
         </section>
       </Container>
 
-      <Container className="mt-20 sm:mt-24">
+      {/* <Container className="mt-20 sm:mt-24">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl sm:p-8 lg:p-10">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
@@ -150,9 +152,9 @@ export default function LandingPage() {
             ))}
           </div>
         </section>
-      </Container>
+      </Container> */}
 
-      <Container className="mt-20 sm:mt-24">
+      {/* <Container className="mt-20 sm:mt-24">
         <section id="showcase" className="space-y-8">
           <div className="max-w-3xl">
             <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-200">
@@ -237,7 +239,7 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
-      </Container>
+      </Container> */}
 
       <Container className="mt-20 sm:mt-24">
         <section className="space-y-8">
