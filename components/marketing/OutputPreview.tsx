@@ -47,8 +47,8 @@ export default function OutputPreview() {
             </div> */}
 
             {/* DETAIL ZOOM */}
-            <div className="mt-4">
-              <div className="flex items-center justify-center rounded-xl bg-gradient-to-r from-purple-600/70 to-pink-500/70 py-3 text-sm font-semibold text-white border border-white/10">
+            <div className="mt-4 w-2/1">
+              <div className="flex items-center  justify-center rounded-xl bg-gradient-to-r from-purple-600/70 to-pink-500/70 py-3 text-sm font-semibold text-white border border-white/10">
                 Detail Zoom
               </div>
             </div>

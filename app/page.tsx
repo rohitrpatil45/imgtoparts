@@ -3,24 +3,8 @@ import { ArtworkViewport } from "@/components/marketing/cnc-visuals";
 import { HeroPanel } from "@/components/marketing/hero-panel";
 import { Container } from "@/components/ui/container";
 import OutputPreview from "@/components/marketing/OutputPreview";
+import ProblemSolve from "@/components/marketing/ProblemSolve";
 
-const problems = [
-  {
-    title: "Manual cropping is slow",
-    description:
-      "Design teams burn time framing the same image again and again just to assemble product-ready views."
-  },
-  {
-    title: "Inconsistent product images",
-    description:
-      "Without a repeatable crop system, every listing and approval deck ends up with slightly different framing."
-  },
-  {
-    title: "Poor marketplace quality",
-    description:
-      "Weak detail shots and uneven zoom levels make premium CNC work feel less polished than it should."
-  }
-];
 
 const workflow = [
   {
@@ -71,8 +55,9 @@ export default function LandingPage() {
     <div className="pb-20 sm:pb-24">
       <HeroPanel />
       <OutputPreview />
+      <ProblemSolve />
 
-      <Container className="mt-20 sm:mt-24">
+      {/* <Container className="mt-20 sm:mt-24">
         <section className="space-y-8">
           <div className="max-w-3xl">
             <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-200">
@@ -106,7 +91,7 @@ export default function LandingPage() {
             ))}
           </div>
         </section>
-      </Container>
+      </Container> */}
 
       {/* <Container className="mt-20 sm:mt-24">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl sm:p-8 lg:p-10">
