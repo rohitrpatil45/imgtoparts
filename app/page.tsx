@@ -4,6 +4,7 @@ import { HeroPanel } from "@/components/marketing/hero-panel";
 import { Container } from "@/components/ui/container";
 import OutputPreview from "@/components/marketing/OutputPreview";
 import ProblemSolve from "@/components/marketing/ProblemSolve";
+import { FeatureGrid } from "@/components/marketing/feature-grid";  
 
 const problems = [
   {
@@ -73,6 +74,8 @@ export default function LandingPage() {
       <HeroPanel />
       <OutputPreview />
       <ProblemSolve />  
+      <FeatureGrid />
+
 
 
       
@@ -210,7 +213,7 @@ export default function LandingPage() {
         </section>
       </Container> */}
 
-      <Container className="mt-20 sm:mt-24">
+      {/* <Container className="mt-20 sm:mt-24">
         <section className="space-y-8">
           <div className="max-w-3xl">
             <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-200">
@@ -246,7 +249,7 @@ export default function LandingPage() {
             ))}
           </div>
         </section>
-      </Container>
+      </Container> */}
 
       <Container className="mt-20 sm:mt-24">
         <section
