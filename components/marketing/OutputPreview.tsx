@@ -34,16 +34,17 @@ export default function OutputPreview() {
             </p>
 
             {/* TOP SMALL CARDS */}
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="aspect-video rounded-xl bg-gradient-to-br from-blue-900/60 to-indigo-800/40 border border-white/10" />
               <div className="aspect-video rounded-xl bg-gradient-to-br from-cyan-900/60 to-blue-800/40 border border-white/10" />
+              <div className="aspect-video rounded-xl bg-gradient-to-br from-purple-900/60 to-indigo-800/40 border border-white/10" />
               <div className="aspect-video rounded-xl bg-gradient-to-br from-purple-900/60 to-indigo-800/40 border border-white/10" />
             </div>
 
             {/* MIDDLE SMALL CARD */}
-            <div className="mt-3 w-1/2">
+            {/* <div className="mt-3 w-1/2">
               <div className="aspect-video rounded-xl bg-gradient-to-br from-pink-900/60 to-purple-800/40 border border-white/10" />
-            </div>
+            </div> */}
 
             {/* DETAIL ZOOM */}
             <div className="mt-4">
