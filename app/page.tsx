@@ -3,6 +3,7 @@ import { ArtworkViewport } from "@/components/marketing/cnc-visuals";
 import { HeroPanel } from "@/components/marketing/hero-panel";
 import { Container } from "@/components/ui/container";
 import OutputPreview from "@/components/marketing/OutputPreview";
+import ProblemSolve from "@/components/marketing/ProblemSolve";
 
 const problems = [
   {
@@ -71,42 +72,10 @@ export default function LandingPage() {
     <div className="pb-20 sm:pb-24">
       <HeroPanel />
       <OutputPreview />
+      <ProblemSolve />  
 
-      <Container className="mt-20 sm:mt-24">
-        <section className="space-y-8">
-          <div className="max-w-3xl">
-            <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.34em] text-slate-200">
-              The problem
-            </div>
-            <h2 className="mt-4 font-[var(--font-heading)] text-3xl font-semibold text-white sm:text-4xl">
-              CNC teams lose momentum when image prep stays manual.
-            </h2>
-            <p className="mt-4 text-base leading-8 text-slate-300">
-              The page is only convincing when the image set feels deliberate.
-              These are the bottlenecks that slow that down.
-            </p>
-          </div>
 
-          <div className="grid gap-5 lg:grid-cols-3">
-            {problems.map((problem, index) => (
-              <div
-                key={problem.title}
-                className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.08]"
-              >
-                <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-300">
-                  0{index + 1}
-                </div>
-                <h3 className="mt-5 font-[var(--font-heading)] text-2xl font-semibold text-white">
-                  {problem.title}
-                </h3>
-                <p className="mt-3 text-sm leading-7 text-slate-300">
-                  {problem.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-      </Container>
+      
 
       {/* <Container className="mt-20 sm:mt-24">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl sm:p-8 lg:p-10">
