@@ -19,6 +19,7 @@ export function ToolWorkspace() {
   const [error, setError] = useState<string | null>(null);
 
   const assetCount = useMemo(
+
     () =>
       results.reduce((count, image) => count + image.crops.length + 1, 0),
     [results]
@@ -147,11 +148,10 @@ export function ToolWorkspace() {
                   await sendFiles(files);
                 }
               }}
-              className={`rounded-[1.75rem] border border-dashed px-6 py-10 text-center transition duration-300 ${
-                isDragging
+              className={`rounded-[1.75rem] border border-dashed px-6 py-10 text-center transition duration-300 ${isDragging
                   ? "border-cyan-300/70 bg-cyan-400/10"
                   : "border-white/15 bg-slate-950/40"
-              }`}
+                }`}
             >
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-cyan-100">
                 <svg
@@ -312,7 +312,7 @@ export function ToolWorkspace() {
                       />
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2  xl:grid-cols-2">
                       {image.crops.map((crop) => (
                         <div
                           key={crop.id}
@@ -348,6 +348,7 @@ export function ToolWorkspace() {
                         </div>
                       ))}
                     </div>
+                    
                   </div>
                 </article>
               ))}
