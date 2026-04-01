@@ -16,6 +16,7 @@ import { download3DRenderZipBundle, downloadAsset } from "@/lib/downloads";
 import type {
   Render3DResponse,
   RenderMaterialKey,
+  Rendered3DImage,
   Rendered3DResult
 } from "@/lib/types";
 
@@ -42,6 +43,59 @@ function formatDimensionTriplet(result: Rendered3DResult) {
   const { x, y, z } = result.stats.dimensions;
 
   return `${x} x ${y} x ${z}`;
+}
+
+function isRendered3DResult(value: unknown): value is Rendered3DResult {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<Rendered3DResult>;
+
+  return (
+    typeof candidate.id === "string" &&
+    Array.isArray(candidate.materials) &&
+    Array.isArray(candidate.images) &&
+    Boolean(candidate.video) &&
+    Boolean(candidate.stats)
+  );
+}
+
+function buildResultFromPayload(
+  payload: Partial<Render3DResponse> & {
+    error?: string;
+    images?: Rendered3DImage[];
+    video?: Rendered3DResult["video"];
+    materials?: Rendered3DResult["materials"];
+    stats?: Rendered3DResult["stats"];
+  },
+  file: File
+): Rendered3DResult | null {
+  if (isRendered3DResult(payload.result)) {
+    return payload.result;
+  }
+
+  if (!payload.images || !payload.video || !payload.materials || !payload.stats) {
+    return null;
+  }
+
+  const extension = getModelExtension(file.name);
+
+  if (!extension) {
+    return null;
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    sourceName: file.name,
+    extension,
+    size: file.size,
+    imageCount: payload.images.length,
+    images: payload.images,
+    materials: payload.materials,
+    video: payload.video,
+    stats: payload.stats
+  };
 }
 
 export default function ThreeDRenderToolPage() {
@@ -119,6 +173,8 @@ export default function ThreeDRenderToolPage() {
   }
 
   async function handleGenerate() {
+    console.log("Render button clicked");
+
     if (!selectedFile) {
       setError("Select an STL or OBJ file before rendering.");
       return;
@@ -132,23 +188,59 @@ export default function ThreeDRenderToolPage() {
     startProgressSimulation();
 
     try {
+      console.log("Calling render API", {
+        endpoint: "/api/render-3d",
+        fileName: selectedFile.name,
+        fileSize: selectedFile.size
+      });
+
       const response = await fetch("/api/render-3d", {
         method: "POST",
         body: formData
       });
-      const payload = (await response.json()) as Render3DResponse & {
+      const rawBody = await response.text();
+      let payload: (Render3DResponse & {
         error?: string;
-      };
+        images?: Rendered3DImage[];
+        video?: Rendered3DResult["video"];
+        materials?: Rendered3DResult["materials"];
+        stats?: Rendered3DResult["stats"];
+      }) | null = null;
+
+      try {
+        payload = JSON.parse(rawBody) as Render3DResponse & {
+          error?: string;
+          images?: Rendered3DImage[];
+          video?: Rendered3DResult["video"];
+          materials?: Rendered3DResult["materials"];
+          stats?: Rendered3DResult["stats"];
+        };
+      } catch {
+        throw new Error("Render API returned an invalid response.");
+      }
 
       if (!response.ok) {
         throw new Error(payload.error ?? "We could not render this 3D file.");
       }
 
+      const normalizedResult = buildResultFromPayload(payload, selectedFile);
+
+      if (!normalizedResult) {
+        throw new Error("Render API response was missing images or video output.");
+      }
+
+      console.log("Render API response received", {
+        imageCount: normalizedResult.imageCount,
+        materialGroups: normalizedResult.materials.length,
+        frameCount: normalizedResult.video.frameCount
+      });
+
       stopProgress();
       setProgress(100);
       setProgressLabel("Render pack complete");
-      setResult(payload.result);
+      setResult(normalizedResult);
     } catch (renderError) {
+      console.error("Render error:", renderError);
       stopProgress();
       setProgress(0);
       setProgressLabel("Ready to render");

@@ -72,11 +72,17 @@ export type Rendered3DResult = {
   extension: ModelFileExtension;
   size: number;
   imageCount: number;
+  images: Rendered3DImage[];
   materials: Rendered3DMaterialGroup[];
   video: Rendered3DVideo;
   stats: Rendered3DStats;
 };
 
 export type Render3DResponse = {
-  result: Rendered3DResult;
+  result?: Rendered3DResult;
+  images?: Rendered3DImage[];
+  video?: Rendered3DVideo;
+  materials?: Rendered3DMaterialGroup[];
+  stats?: Rendered3DStats;
+  error?: string;
 };

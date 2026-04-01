@@ -17,7 +17,7 @@ import {
   Group,
   MathUtils,
   Mesh,
-  MeshStandardMaterial,
+  MeshPhongMaterial,
   Object3D,
   PerspectiveCamera,
   Scene,
@@ -62,6 +62,7 @@ type CameraPlacement = {
 
 const STUDIO_BACKGROUND = "#050816";
 const CAMERA_FOV = 34;
+const VIDEO_FRAME_RATE = 30;
 
 let svgDomQueue = Promise.resolve();
 
@@ -204,11 +205,12 @@ function normalizeModelSnapshot(source: Object3D): NormalizedModelSnapshot {
 function createMaterialVariant(key: RenderMaterialKey) {
   const spec = MATERIAL_META[key];
 
-  return new MeshStandardMaterial({
+  // SVGRenderer is much more reliable with classic shaded materials than with
+  // the browser preview's PBR stack, so the export pipeline uses Phong shading.
+  return new MeshPhongMaterial({
     color: new Color(spec.color),
-    roughness: spec.roughness,
-    metalness: spec.metalness,
-    envMapIntensity: key === "metal" ? 1.6 : 0.7
+    shininess: key === "metal" ? 90 : 22,
+    specular: new Color(key === "metal" ? "#f4f8ff" : "#4f5a66")
   });
 }
 
@@ -356,6 +358,13 @@ async function renderStillImage(
   const distance = calculateCameraDistance(snapshot.radius);
   const placement = getCameraPlacement(angle, distance);
 
+  console.log("Camera setup complete", {
+    material: materialKey,
+    angle,
+    position: placement.position.toArray(),
+    up: placement.up?.toArray() ?? null
+  });
+
   return renderSvgFrame(
     snapshot,
     materialKey,
@@ -365,24 +374,84 @@ async function renderStillImage(
   );
 }
 
-function resolveFfmpegBinary() {
-  const binaryPath = process.env.FFMPEG_PATH || ffmpegPath;
+async function isExecutableReachable(command: string) {
+  return new Promise<boolean>((resolve) => {
+    const child = spawn(command, ["-version"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true
+    });
+
+    child.on("error", () => {
+      resolve(false);
+    });
+
+    child.on("close", (code) => {
+      resolve(code === 0);
+    });
+  });
+}
+
+async function resolveReadablePath(candidates: string[]) {
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function resolveFfmpegBinary() {
+  if (process.env.FFMPEG_PATH) {
+    try {
+      await fs.access(process.env.FFMPEG_PATH);
+      console.log("Using ffmpeg from FFMPEG_PATH:", process.env.FFMPEG_PATH);
+      return process.env.FFMPEG_PATH;
+    } catch {
+      throw new Error(
+        `FFMPEG_PATH is set but not readable: ${process.env.FFMPEG_PATH}`
+      );
+    }
+  }
+
+  if (await isExecutableReachable("ffmpeg")) {
+    console.log("Using ffmpeg from PATH");
+    return "ffmpeg";
+  }
+
+  const binaryName =
+    (ffmpegPath && path.basename(ffmpegPath)) ||
+    (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const binaryPath = await resolveReadablePath([
+    ffmpegPath,
+    path.join(process.cwd(), "node_modules", "ffmpeg-static", binaryName)
+  ].filter((candidate): candidate is string => Boolean(candidate)));
 
   if (!binaryPath) {
     throw new Error(
-      "ffmpeg could not be found. Install ffmpeg or provide FFMPEG_PATH."
+      "ffmpeg could not be found on PATH and no readable bundled binary was available. Install ffmpeg or provide FFMPEG_PATH."
     );
   }
 
+  console.log("ffmpeg not found on PATH. Using bundled binary:", binaryPath);
   return binaryPath;
 }
 
 async function runFfmpeg(args: string[]) {
-  const binaryPath = resolveFfmpegBinary();
+  const binaryPath = await resolveFfmpegBinary();
+
+  console.log("ffmpeg encode started", {
+    binaryPath,
+    args
+  });
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(binaryPath, args, {
-      stdio: ["ignore", "ignore", "pipe"]
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true
     });
 
     let stderr = "";
@@ -394,10 +463,12 @@ async function runFfmpeg(args: string[]) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
+        console.log("ffmpeg encode finished");
         resolve();
         return;
       }
 
+      console.error("ffmpeg execution errors", stderr.trim());
       reject(
         new Error(
           stderr.trim() || "ffmpeg failed while encoding the 360-degree preview."
@@ -414,38 +485,61 @@ async function generatePreviewVideo(
   // Video generation reuses the same renderer as the stills, orbiting the camera
   // around the normalized model for 60 frames and then handing that frame sequence
   // to ffmpeg to encode a square MP4 preview that browsers can stream directly.
-  const workingDirectory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "three-render-")
-  );
-  const outputPath = path.join(workingDirectory, `${fileStem}-360-preview.mp4`);
+  const workingDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "three-render-"));
+  const frameDirectory = path.join(workingDirectory, "frames");
+  const outputDirectory = path.join(workingDirectory, "output");
+  const outputPath = path.join(outputDirectory, `${fileStem}-360-preview.mp4`);
   const distance = calculateCameraDistance(snapshot.radius) * 1.08;
 
   try {
+    await fs.mkdir(frameDirectory, { recursive: true });
+    await fs.mkdir(outputDirectory, { recursive: true });
+
+    console.log("Camera setup complete", {
+      material: PREVIEW_VIDEO_MATERIAL,
+      angle: "orbit",
+      distance,
+      frameCount: VIDEO_FRAME_COUNT
+    });
+
     for (let frame = 0; frame < VIDEO_FRAME_COUNT; frame += 1) {
       const rotation = (frame / VIDEO_FRAME_COUNT) * Math.PI * 2;
-      const frameBuffer = await renderSvgFrame(
-        snapshot,
-        PREVIEW_VIDEO_MATERIAL,
-        OUTPUT_VIDEO_SIZE,
-        new Vector3(
-          Math.cos(rotation) * distance,
-          distance * 0.42,
-          Math.sin(rotation) * distance
-        )
+      const cameraPosition = new Vector3(
+        Math.cos(rotation) * distance,
+        distance * 0.42,
+        Math.sin(rotation) * distance
       );
 
-      await fs.writeFile(
-        path.join(workingDirectory, `frame-${String(frame).padStart(4, "0")}.png`),
-        frameBuffer
-      );
+      try {
+        const frameBuffer = await renderSvgFrame(
+          snapshot,
+          PREVIEW_VIDEO_MATERIAL,
+          OUTPUT_VIDEO_SIZE,
+          cameraPosition
+        );
+
+        await fs.writeFile(
+          path.join(frameDirectory, `frame-${String(frame).padStart(4, "0")}.png`),
+          frameBuffer
+        );
+      } catch (error) {
+        console.error("async rendering failures", {
+          frame,
+          position: cameraPosition.toArray(),
+          error
+        });
+        throw error;
+      }
     }
+
+    console.log("Frames generated:", VIDEO_FRAME_COUNT);
 
     await runFfmpeg([
       "-y",
       "-framerate",
-      "30",
+      String(VIDEO_FRAME_RATE),
       "-i",
-      path.join(workingDirectory, "frame-%04d.png"),
+      path.join(frameDirectory, "frame-%04d.png"),
       "-c:v",
       "libx264",
       "-crf",
@@ -458,6 +552,8 @@ async function generatePreviewVideo(
       "+faststart",
       outputPath
     ]);
+
+    console.log("MP4 created at:", outputPath);
 
     const videoBuffer = await fs.readFile(outputPath);
 
@@ -486,61 +582,77 @@ export async function generate3DRenderPack(file: File): Promise<Rendered3DResult
   const buffer = Buffer.from(await file.arrayBuffer());
   const loadedModel = await loadModelFromBuffer(buffer, extension);
   const snapshot = normalizeModelSnapshot(loadedModel);
+  const materials: Rendered3DMaterialGroup[] = [];
+  const images: Rendered3DImage[] = [];
 
-  const materials = await Promise.all(
-    (Object.keys(MATERIAL_META) as RenderMaterialKey[]).map(
-      async (materialKey): Promise<Rendered3DMaterialGroup> => {
-        const images = await Promise.all(
-          (Object.keys(CAMERA_META) as RenderAngleKey[]).map(
-            async (angle): Promise<Rendered3DImage> => {
-              const pngBuffer = await renderStillImage(snapshot, materialKey, angle);
-
-              return {
-                id: randomUUID(),
-                material: materialKey,
-                angle,
-                label: `${MATERIAL_META[materialKey].label} ${CAMERA_META[angle].label}`,
-                filename: `${fileStem}-${materialKey}-${angle}.png`,
-                dataUrl: bufferToDataUrl(pngBuffer, "image/png"),
-                width: OUTPUT_IMAGE_SIZE,
-                height: OUTPUT_IMAGE_SIZE
-              };
-            }
-          )
-        );
-
-        return {
-          key: materialKey,
-          label: MATERIAL_META[materialKey].label,
-          description: MATERIAL_META[materialKey].description,
-          images
-        };
-      }
-    )
-  );
-
-  const video = await generatePreviewVideo(snapshot, fileStem);
-
-  return {
-    id: randomUUID(),
+  console.log("Render started", {
     sourceName: file.name,
     extension,
-    size: file.size,
-    imageCount: materials.reduce(
-      (count, materialGroup) => count + materialGroup.images.length,
-      0
-    ),
-    materials,
-    video,
-    stats: {
-      meshCount: snapshot.meshCount,
-      vertexCount: snapshot.vertexCount,
-      triangleCount: snapshot.triangleCount,
-      dimensions: {
-        x: Number(snapshot.originalSize.x.toFixed(2)),
-        y: Number(snapshot.originalSize.y.toFixed(2)),
-        z: Number(snapshot.originalSize.z.toFixed(2))
+    size: file.size
+  });
+
+  try {
+    for (const materialKey of Object.keys(MATERIAL_META) as RenderMaterialKey[]) {
+      const materialImages: Rendered3DImage[] = [];
+
+      for (const angle of Object.keys(CAMERA_META) as RenderAngleKey[]) {
+        try {
+          const pngBuffer = await renderStillImage(snapshot, materialKey, angle);
+          const image: Rendered3DImage = {
+            id: randomUUID(),
+            material: materialKey,
+            angle,
+            label: `${MATERIAL_META[materialKey].label} ${CAMERA_META[angle].label}`,
+            filename: `${fileStem}-${materialKey}-${angle}.png`,
+            dataUrl: bufferToDataUrl(pngBuffer, "image/png"),
+            width: OUTPUT_IMAGE_SIZE,
+            height: OUTPUT_IMAGE_SIZE
+          };
+
+          materialImages.push(image);
+          images.push(image);
+        } catch (error) {
+          console.error("async rendering failures", {
+            material: materialKey,
+            angle,
+            error
+          });
+          throw error;
+        }
       }
+
+      materials.push({
+        key: materialKey,
+        label: MATERIAL_META[materialKey].label,
+        description: MATERIAL_META[materialKey].description,
+        images: materialImages
+      });
     }
-  };
+
+    const video = await generatePreviewVideo(snapshot, fileStem);
+
+    return {
+      id: randomUUID(),
+      sourceName: file.name,
+      extension,
+      size: file.size,
+      imageCount: images.length,
+      images,
+      materials,
+      video,
+      stats: {
+        meshCount: snapshot.meshCount,
+        vertexCount: snapshot.vertexCount,
+        triangleCount: snapshot.triangleCount,
+        dimensions: {
+          x: Number(snapshot.originalSize.x.toFixed(2)),
+          y: Number(snapshot.originalSize.y.toFixed(2)),
+          z: Number(snapshot.originalSize.z.toFixed(2))
+        }
+      }
+    };
+  } catch (error) {
+    console.error("file writing issues", error);
+    throw error;
+  }
 }

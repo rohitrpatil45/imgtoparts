@@ -7,6 +7,8 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
+    console.log("Render API hit");
+
     const formData = await request.formData();
     const uploadedFile = formData.get("file");
 
@@ -33,10 +35,25 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("Render started", {
+      sourceName: uploadedFile.name,
+      extension,
+      size: uploadedFile.size
+    });
+
     const result = await generate3DRenderPack(uploadedFile);
 
-    return NextResponse.json({ result });
+    return NextResponse.json({
+      result,
+      images: result.images,
+      video: result.video,
+      materials: result.materials,
+      stats: result.stats
+    });
   } catch (error) {
+    console.error("Render error:", error);
+    console.error("3D render pipeline failed", error);
+
     const message =
       error instanceof Error
         ? error.message
