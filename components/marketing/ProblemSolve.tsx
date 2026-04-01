@@ -47,8 +47,8 @@ function ProblemSolve() {
             </h2>
 
             <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              Image preparation shouldn't be your biggest bottleneck. Yet for most teams, it is. 
-              Here's what's holding you back.
+              Image preparation should not be your biggest bottleneck. Yet for
+              most teams, it is. Here is what is holding you back.
             </p>
           </div>
 
