@@ -7,7 +7,7 @@ import type {
 export const MAX_3D_FILE_SIZE = 20 * 1024 * 1024;
 export const OUTPUT_IMAGE_SIZE = 1024;
 export const OUTPUT_VIDEO_SIZE = 1080;
-export const VIDEO_FRAME_COUNT = 60;
+export const VIDEO_FRAME_COUNT = 24;
 export const PREVIEW_VIDEO_MATERIAL: RenderMaterialKey = "clay";
 
 export const SUPPORTED_3D_EXTENSIONS: ModelFileExtension[] = ["stl", "obj"];

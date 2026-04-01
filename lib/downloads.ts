@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { sanitizeFileStem } from "@/lib/filenames";
 import { CAMERA_META, MATERIAL_META } from "@/lib/3d-config";
-import type { ProcessedImageResult, Rendered3DResult } from "@/lib/types";
+import type { ProcessedImageResult, Rendered3DImage, Rendered3DResult } from "@/lib/types";
 
 function triggerBrowserDownload(filename: string, href: string) {
   const link = document.createElement("a");
@@ -65,7 +65,7 @@ export async function download3DRenderZipBundle(result: Rendered3DResult) {
     throw new Error("Could not prepare the 3D render ZIP bundle.");
   }
 
-  result.materials.forEach((materialGroup) => {
+  await Promise.all(result.materials.map(async (materialGroup) => {
     const materialFolder = rootFolder.folder(MATERIAL_META[materialGroup.key].label);
 
     if (!materialFolder) {
@@ -76,14 +76,13 @@ export async function download3DRenderZipBundle(result: Rendered3DResult) {
       .map((image) => `${CAMERA_META[image.angle].label}: ${image.filename}`)
       .join("\n");
 
-    materialGroup.images.forEach((image) => {
-      materialFolder.file(image.filename, dataUrlToBase64(image.dataUrl), {
-        base64: true
-      });
-    });
+    await Promise.all(materialGroup.images.map(async (image) => {
+      const fileContent = await resolve3DAssetContent(image);
+      materialFolder.file(image.filename, fileContent);
+    }));
 
     materialFolder.file("README.txt", `${manifest}\n`);
-  });
+  }));
 
   const zipBlob = await zip.generateAsync({ type: "blob" });
   const objectUrl = URL.createObjectURL(zipBlob);
@@ -92,4 +91,18 @@ export async function download3DRenderZipBundle(result: Rendered3DResult) {
     objectUrl
   );
   URL.revokeObjectURL(objectUrl);
+}
+
+async function resolve3DAssetContent(image: Rendered3DImage) {
+  if (image.dataUrl) {
+    return dataUrlToBase64(image.dataUrl);
+  }
+
+  const response = await fetch(image.src);
+
+  if (!response.ok) {
+    throw new Error(`Unable to download render asset: ${image.src}`);
+  }
+
+  return response.arrayBuffer();
 }

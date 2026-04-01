@@ -42,14 +42,19 @@ export async function POST(request: Request) {
     });
 
     const result = await generate3DRenderPack(uploadedFile);
-
-    return NextResponse.json({
+    const responsePayload = {
       result,
-      images: result.images,
-      video: result.video,
+      images: result.images.map((image) => image.src),
+      video: result.video.src,
       materials: result.materials,
-      stats: result.stats
-    });
+      stats: result.stats,
+      status: "complete" as const
+    };
+
+    console.log("Sending final response:", responsePayload);
+    console.log("FINAL STEP REACHED");
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     console.error("Render error:", error);
     console.error("3D render pipeline failed", error);

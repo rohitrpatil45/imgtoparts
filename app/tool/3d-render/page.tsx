@@ -16,7 +16,6 @@ import { download3DRenderZipBundle, downloadAsset } from "@/lib/downloads";
 import type {
   Render3DResponse,
   RenderMaterialKey,
-  Rendered3DImage,
   Rendered3DResult
 } from "@/lib/types";
 
@@ -64,38 +63,17 @@ function isRendered3DResult(value: unknown): value is Rendered3DResult {
 function buildResultFromPayload(
   payload: Partial<Render3DResponse> & {
     error?: string;
-    images?: Rendered3DImage[];
-    video?: Rendered3DResult["video"];
+    images?: string[];
+    video?: string;
     materials?: Rendered3DResult["materials"];
     stats?: Rendered3DResult["stats"];
-  },
-  file: File
+  }
 ): Rendered3DResult | null {
   if (isRendered3DResult(payload.result)) {
     return payload.result;
   }
 
-  if (!payload.images || !payload.video || !payload.materials || !payload.stats) {
-    return null;
-  }
-
-  const extension = getModelExtension(file.name);
-
-  if (!extension) {
-    return null;
-  }
-
-  return {
-    id: crypto.randomUUID(),
-    sourceName: file.name,
-    extension,
-    size: file.size,
-    imageCount: payload.images.length,
-    images: payload.images,
-    materials: payload.materials,
-    video: payload.video,
-    stats: payload.stats
-  };
+  return null;
 }
 
 export default function ThreeDRenderToolPage() {
@@ -201,8 +179,8 @@ export default function ThreeDRenderToolPage() {
       const rawBody = await response.text();
       let payload: (Render3DResponse & {
         error?: string;
-        images?: Rendered3DImage[];
-        video?: Rendered3DResult["video"];
+        images?: string[];
+        video?: string;
         materials?: Rendered3DResult["materials"];
         stats?: Rendered3DResult["stats"];
       }) | null = null;
@@ -210,8 +188,8 @@ export default function ThreeDRenderToolPage() {
       try {
         payload = JSON.parse(rawBody) as Render3DResponse & {
           error?: string;
-          images?: Rendered3DImage[];
-          video?: Rendered3DResult["video"];
+          images?: string[];
+          video?: string;
           materials?: Rendered3DResult["materials"];
           stats?: Rendered3DResult["stats"];
         };
@@ -223,10 +201,17 @@ export default function ThreeDRenderToolPage() {
         throw new Error(payload.error ?? "We could not render this 3D file.");
       }
 
-      const normalizedResult = buildResultFromPayload(payload, selectedFile);
+      console.log("Response received:", payload);
+
+      const normalizedResult = buildResultFromPayload(payload);
 
       if (!normalizedResult) {
+        console.error("Invalid response:", payload);
         throw new Error("Render API response was missing images or video output.");
+      }
+
+      if (!payload.images || !payload.video) {
+        console.error("Invalid response:", payload);
       }
 
       console.log("Render API response received", {
@@ -526,7 +511,7 @@ export default function ThreeDRenderToolPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        downloadAsset(result.video.filename, result.video.dataUrl)
+                        downloadAsset(result.video.filename, result.video.src)
                       }
                       className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5"
                     >
@@ -619,7 +604,7 @@ export default function ThreeDRenderToolPage() {
                           >
                             <div className="aspect-square overflow-hidden border-b border-white/10">
                               <Image
-                                src={image.dataUrl}
+                                src={image.src}
                                 alt={`${activeMaterialGroup.label} ${CAMERA_META[image.angle].label}`}
                                 width={image.width}
                                 height={image.height}
@@ -640,7 +625,7 @@ export default function ThreeDRenderToolPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    downloadAsset(image.filename, image.dataUrl)
+                                    downloadAsset(image.filename, image.src)
                                   }
                                   className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition duration-300 hover:border-cyan-300/30 hover:bg-cyan-400/10"
                                 >
@@ -680,7 +665,7 @@ export default function ThreeDRenderToolPage() {
 
                     <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black">
                       <video
-                        src={result.video.dataUrl}
+                        src={result.video.src}
                         controls
                         loop
                         playsInline

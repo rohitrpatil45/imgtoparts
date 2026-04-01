@@ -33,7 +33,8 @@ export type Rendered3DImage = {
   angle: RenderAngleKey;
   label: string;
   filename: string;
-  dataUrl: string;
+  src: string;
+  dataUrl?: string;
   width: number;
   height: number;
 };
@@ -47,7 +48,8 @@ export type Rendered3DMaterialGroup = {
 
 export type Rendered3DVideo = {
   filename: string;
-  dataUrl: string;
+  src: string;
+  dataUrl?: string;
   mimeType: string;
   width: number;
   height: number;
@@ -80,9 +82,10 @@ export type Rendered3DResult = {
 
 export type Render3DResponse = {
   result?: Rendered3DResult;
-  images?: Rendered3DImage[];
-  video?: Rendered3DVideo;
+  images?: string[];
+  video?: string;
   materials?: Rendered3DMaterialGroup[];
   stats?: Rendered3DStats;
+  status?: "complete";
   error?: string;
 };
