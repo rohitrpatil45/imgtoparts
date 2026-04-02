@@ -6,9 +6,11 @@ import type {
 
 export const MAX_3D_FILE_SIZE = 20 * 1024 * 1024;
 export const OUTPUT_IMAGE_SIZE = 1024;
-export const OUTPUT_VIDEO_SIZE = 1080;
+export const OUTPUT_VIDEO_SIZE = 1024;
 export const VIDEO_FRAME_COUNT = 24;
 export const PREVIEW_VIDEO_MATERIAL: RenderMaterialKey = "clay";
+export const RENDER_MATERIAL_KEYS = ["clay", "metal"] as const satisfies readonly RenderMaterialKey[];
+export const RENDER_ANGLE_KEYS = ["front", "side", "perspective"] as const satisfies readonly RenderAngleKey[];
 
 export const SUPPORTED_3D_EXTENSIONS: ModelFileExtension[] = ["stl", "obj"];
 

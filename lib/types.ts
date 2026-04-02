@@ -68,24 +68,35 @@ export type Rendered3DStats = {
   };
 };
 
-export type Rendered3DResult = {
+export type Rendered3DImagePack = {
   id: string;
+  renderId: string;
   sourceName: string;
   extension: ModelFileExtension;
   size: number;
   imageCount: number;
   images: Rendered3DImage[];
   materials: Rendered3DMaterialGroup[];
-  video: Rendered3DVideo;
   stats: Rendered3DStats;
 };
 
-export type Render3DResponse = {
+export type Rendered3DResult = Rendered3DImagePack & {
+  video?: Rendered3DVideo | null;
+};
+
+export type Render3DImagesResponse = {
   result?: Rendered3DResult;
+  renderId?: string;
   images?: string[];
-  video?: string;
   materials?: Rendered3DMaterialGroup[];
   stats?: Rendered3DStats;
-  status?: "complete";
+  status?: "images_complete";
+  error?: string;
+};
+
+export type RenderVideoResponse = {
+  renderId?: string;
+  video?: Rendered3DVideo;
+  status?: "video_complete" | "video_pending" | "video_failed";
   error?: string;
 };

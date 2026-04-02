@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getModelExtension, MAX_3D_FILE_SIZE } from "@/lib/3d-config";
-import { generate3DRenderPack } from "@/lib/render-utils";
+import { generate3DImagePack } from "@/lib/render-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -41,14 +41,14 @@ export async function POST(request: Request) {
       size: uploadedFile.size
     });
 
-    const result = await generate3DRenderPack(uploadedFile);
+    const result = await generate3DImagePack(uploadedFile);
     const responsePayload = {
+      renderId: result.renderId,
       result,
       images: result.images.map((image) => image.src),
-      video: result.video.src,
       materials: result.materials,
       stats: result.stats,
-      status: "complete" as const
+      status: "images_complete" as const
     };
 
     console.log("Sending final response:", responsePayload);

@@ -10,12 +10,15 @@ import {
   formatFileSize,
   getModelExtension,
   MATERIAL_META,
-  MAX_3D_FILE_SIZE
+  MAX_3D_FILE_SIZE,
+  RENDER_ANGLE_KEYS,
+  RENDER_MATERIAL_KEYS
 } from "@/lib/3d-config";
 import { download3DRenderZipBundle, downloadAsset } from "@/lib/downloads";
 import type {
-  Render3DResponse,
+  Render3DImagesResponse,
   RenderMaterialKey,
+  RenderVideoResponse,
   Rendered3DResult
 } from "@/lib/types";
 
@@ -53,21 +56,15 @@ function isRendered3DResult(value: unknown): value is Rendered3DResult {
 
   return (
     typeof candidate.id === "string" &&
+    typeof candidate.renderId === "string" &&
     Array.isArray(candidate.materials) &&
     Array.isArray(candidate.images) &&
-    Boolean(candidate.video) &&
     Boolean(candidate.stats)
   );
 }
 
 function buildResultFromPayload(
-  payload: Partial<Render3DResponse> & {
-    error?: string;
-    images?: string[];
-    video?: string;
-    materials?: Rendered3DResult["materials"];
-    stats?: Rendered3DResult["stats"];
-  }
+  payload: Partial<Render3DImagesResponse>
 ): Rendered3DResult | null {
   if (isRendered3DResult(payload.result)) {
     return payload.result;
@@ -76,26 +73,44 @@ function buildResultFromPayload(
   return null;
 }
 
+const RENDER_IMAGE_COUNT = RENDER_MATERIAL_KEYS.length * RENDER_ANGLE_KEYS.length;
+const RENDER_ANGLE_SUMMARY = RENDER_ANGLE_KEYS
+  .map((angle) => CAMERA_META[angle].label.toLowerCase())
+  .join(", ");
+
 export default function ThreeDRenderToolPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const progressTimerRef = useRef<number | null>(null);
+  const videoPollTimerRef = useRef<number | null>(null);
+  const latestRenderIdRef = useRef<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [result, setResult] = useState<Rendered3DResult | null>(null);
-  const [activeMaterial, setActiveMaterial] = useState<RenderMaterialKey>("wood");
+  const [activeMaterial, setActiveMaterial] = useState<RenderMaterialKey>(
+    RENDER_MATERIAL_KEYS[0]
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [shouldGenerateVideo, setShouldGenerateVideo] = useState(true);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("Ready to render");
   const [error, setError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [didSkipVideo, setDidSkipVideo] = useState(false);
 
   const activeMaterialGroup =
     result?.materials.find((material) => material.key === activeMaterial) ?? null;
+  const previewVideo = result?.video ?? null;
 
   useEffect(() => {
     return () => {
       if (progressTimerRef.current) {
         window.clearInterval(progressTimerRef.current);
+      }
+
+      if (videoPollTimerRef.current) {
+        window.clearTimeout(videoPollTimerRef.current);
       }
     };
   }, []);
@@ -107,6 +122,13 @@ export default function ThreeDRenderToolPage() {
     }
   }
 
+  function stopVideoPolling() {
+    if (videoPollTimerRef.current) {
+      window.clearTimeout(videoPollTimerRef.current);
+      videoPollTimerRef.current = null;
+    }
+  }
+
   function startProgressSimulation() {
     stopProgress();
 
@@ -114,9 +136,9 @@ export default function ThreeDRenderToolPage() {
       { value: 12, label: "Validating STL/OBJ payload" },
       { value: 24, label: "Uploading source geometry to the render API" },
       { value: 42, label: "Centering the model and normalizing scale" },
-      { value: 61, label: "Rendering material variations and camera angles" },
-      { value: 81, label: "Encoding the 360-degree MP4 preview" },
-      { value: 92, label: "Preparing the download-ready render pack" }
+      { value: 63, label: "Rendering material variations and camera angles" },
+      { value: 82, label: "Writing production PNG outputs" },
+      { value: 94, label: "Preparing the image render pack" }
     ];
     let stepIndex = 0;
 
@@ -146,8 +168,138 @@ export default function ThreeDRenderToolPage() {
     setSelectedFile(file);
     setResult(null);
     setError(null);
+    setVideoError(null);
+    setDidSkipVideo(false);
+    setIsGeneratingVideo(false);
+    stopVideoPolling();
+    latestRenderIdRef.current = null;
+    setActiveMaterial(RENDER_MATERIAL_KEYS[0]);
     setProgress(0);
     setProgressLabel("Ready to render");
+  }
+
+  function applyCompletedVideo(renderId: string, payload: RenderVideoResponse) {
+    if (latestRenderIdRef.current !== renderId || !payload.video) {
+      return;
+    }
+
+    stopVideoPolling();
+    setResult((currentResult) => {
+      if (!currentResult || currentResult.renderId !== renderId) {
+        return currentResult;
+      }
+
+      return {
+        ...currentResult,
+        video: payload.video
+      };
+    });
+    setIsGeneratingVideo(false);
+    setVideoError(null);
+  }
+
+  async function pollVideoStatus(renderId: string) {
+    try {
+      const response = await fetch(
+        `/api/render-video?renderId=${encodeURIComponent(renderId)}`,
+        {
+          method: "GET",
+          cache: "no-store"
+        }
+      );
+      const rawBody = await response.text();
+      let payload: RenderVideoResponse | null = null;
+
+      try {
+        payload = JSON.parse(rawBody) as RenderVideoResponse;
+      } catch {
+        throw new Error("Video status API returned an invalid response.");
+      }
+
+      if (latestRenderIdRef.current !== renderId) {
+        return;
+      }
+
+      if (payload?.status === "video_complete" && payload.video) {
+        applyCompletedVideo(renderId, payload);
+        return;
+      }
+
+      if (payload?.status === "video_pending" && response.status === 202) {
+        videoPollTimerRef.current = window.setTimeout(() => {
+          void pollVideoStatus(renderId);
+        }, 1500);
+        return;
+      }
+
+      throw new Error(payload?.error ?? "We could not generate the preview video.");
+    } catch (videoGenerationError) {
+      if (latestRenderIdRef.current !== renderId) {
+        return;
+      }
+
+      stopVideoPolling();
+      setIsGeneratingVideo(false);
+      setVideoError(
+        videoGenerationError instanceof Error
+          ? videoGenerationError.message
+          : "Unexpected video generation error."
+      );
+    }
+  }
+
+  async function generateVideoForRender(renderId: string) {
+    latestRenderIdRef.current = renderId;
+    stopVideoPolling();
+    setIsGeneratingVideo(true);
+    setVideoError(null);
+    setDidSkipVideo(false);
+
+    try {
+      const response = await fetch("/api/render-video", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ renderId })
+      });
+      const rawBody = await response.text();
+      let payload: RenderVideoResponse | null = null;
+
+      try {
+        payload = JSON.parse(rawBody) as RenderVideoResponse;
+      } catch {
+        throw new Error("Video API returned an invalid response.");
+      }
+
+      if (latestRenderIdRef.current !== renderId) {
+        return;
+      }
+
+      if (payload?.status === "video_complete" && payload.video) {
+        applyCompletedVideo(renderId, payload);
+        return;
+      }
+
+      if (payload?.status === "video_pending" && response.status === 202) {
+        void pollVideoStatus(renderId);
+        return;
+      }
+
+      throw new Error(payload?.error ?? "We could not generate the preview video.");
+    } catch (videoGenerationError) {
+      if (latestRenderIdRef.current !== renderId) {
+        return;
+      }
+
+      stopVideoPolling();
+      setIsGeneratingVideo(false);
+      setVideoError(
+        videoGenerationError instanceof Error
+          ? videoGenerationError.message
+          : "Unexpected video generation error."
+      );
+    }
   }
 
   async function handleGenerate() {
@@ -163,6 +315,11 @@ export default function ThreeDRenderToolPage() {
 
     setIsRendering(true);
     setError(null);
+    setVideoError(null);
+    setDidSkipVideo(false);
+    setIsGeneratingVideo(false);
+    stopVideoPolling();
+    latestRenderIdRef.current = null;
     startProgressSimulation();
 
     try {
@@ -177,53 +334,49 @@ export default function ThreeDRenderToolPage() {
         body: formData
       });
       const rawBody = await response.text();
-      let payload: (Render3DResponse & {
-        error?: string;
-        images?: string[];
-        video?: string;
-        materials?: Rendered3DResult["materials"];
-        stats?: Rendered3DResult["stats"];
-      }) | null = null;
+      let payload: Render3DImagesResponse | null = null;
 
       try {
-        payload = JSON.parse(rawBody) as Render3DResponse & {
-          error?: string;
-          images?: string[];
-          video?: string;
-          materials?: Rendered3DResult["materials"];
-          stats?: Rendered3DResult["stats"];
-        };
+        payload = JSON.parse(rawBody) as Render3DImagesResponse;
       } catch {
         throw new Error("Render API returned an invalid response.");
       }
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "We could not render this 3D file.");
+        throw new Error(payload?.error ?? "We could not render this 3D file.");
       }
 
       console.log("Response received:", payload);
 
-      const normalizedResult = buildResultFromPayload(payload);
+      const normalizedResult = buildResultFromPayload(payload ?? {});
 
       if (!normalizedResult) {
         console.error("Invalid response:", payload);
-        throw new Error("Render API response was missing images or video output.");
-      }
-
-      if (!payload.images || !payload.video) {
-        console.error("Invalid response:", payload);
+        throw new Error("Render API response was missing image output.");
       }
 
       console.log("Render API response received", {
         imageCount: normalizedResult.imageCount,
-        materialGroups: normalizedResult.materials.length,
-        frameCount: normalizedResult.video.frameCount
+        materialGroups: normalizedResult.materials.length
       });
 
       stopProgress();
       setProgress(100);
-      setProgressLabel("Render pack complete");
       setResult(normalizedResult);
+      setActiveMaterial(
+        normalizedResult.materials[0]?.key ?? RENDER_MATERIAL_KEYS[0]
+      );
+      setProgressLabel(
+        shouldGenerateVideo
+          ? "PNG renders ready. Video is generating in the background"
+          : "PNG render pack complete"
+      );
+
+      if (shouldGenerateVideo) {
+        void generateVideoForRender(normalizedResult.renderId);
+      } else {
+        setDidSkipVideo(true);
+      }
     } catch (renderError) {
       console.error("Render error:", renderError);
       stopProgress();
@@ -258,6 +411,29 @@ export default function ThreeDRenderToolPage() {
     }
   }
 
+  function handleClear() {
+    stopProgress();
+    stopVideoPolling();
+    latestRenderIdRef.current = null;
+    setSelectedFile(null);
+    setResult(null);
+    setError(null);
+    setVideoError(null);
+    setDidSkipVideo(false);
+    setIsGeneratingVideo(false);
+    setActiveMaterial(RENDER_MATERIAL_KEYS[0]);
+    setProgress(0);
+    setProgressLabel("Ready to render");
+  }
+
+  function handleVideoRetry() {
+    if (!result) {
+      return;
+    }
+
+    void generateVideoForRender(result.renderId);
+  }
+
   return (
     <Container className="pb-16 pt-10 sm:pt-14">
       <div className="space-y-8">
@@ -278,9 +454,9 @@ export default function ThreeDRenderToolPage() {
                 Turn one CAD upload into a polished multi-angle render pack.
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-8 text-slate-300 sm:text-base">
-                Upload an STL or OBJ model to generate 12 production PNG renders
-                across front, side, top, and perspective views, then finish with
-                a rotating MP4 preview for approvals, listings, and client decks.
+                Upload an STL or OBJ model to generate {RENDER_IMAGE_COUNT} production
+                PNG renders across {RENDER_ANGLE_SUMMARY} views, then generate the
+                rotating MP4 preview separately in the background.
               </p>
             </div>
 
@@ -297,7 +473,11 @@ export default function ThreeDRenderToolPage() {
                 disabled={!selectedFile || isRendering}
                 className="inline-flex items-center justify-center rounded-full bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isRendering ? "Rendering..." : "Generate 12 Renders + MP4"}
+                {isRendering
+                  ? "Rendering PNGs..."
+                  : shouldGenerateVideo
+                    ? "Generate PNGs + Background MP4"
+                    : "Generate PNGs Only"}
               </button>
             </div>
           </div>
@@ -315,8 +495,9 @@ export default function ThreeDRenderToolPage() {
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-slate-300">
                   The pipeline validates the model, normalizes scale, renders
-                  every material and camera preset, then assembles a rotating MP4
-                  preview using ffmpeg.
+                  a reduced set of material and camera presets, returns the PNG
+                  pack first,
+                  and can generate the rotating MP4 in a second background pass.
                 </p>
               </div>
 
@@ -330,13 +511,7 @@ export default function ThreeDRenderToolPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedFile(null);
-                    setResult(null);
-                    setError(null);
-                    setProgress(0);
-                    setProgressLabel("Ready to render");
-                  }}
+                  onClick={handleClear}
                   className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/45 px-5 py-3 text-sm font-semibold text-slate-200 transition duration-300 hover:border-rose-300/30 hover:bg-rose-400/10"
                 >
                   Clear
@@ -418,13 +593,31 @@ export default function ThreeDRenderToolPage() {
                 />
                 <StatCard
                   label="Still Outputs"
-                  value="12 PNGs"
+                  value={`${RENDER_IMAGE_COUNT} PNGs`}
                 />
                 <StatCard
                   label="Video Output"
-                  value="1 MP4"
+                  value="Async MP4"
                 />
               </div>
+
+              <label className="flex items-start gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-5">
+                <input
+                  type="checkbox"
+                  checked={shouldGenerateVideo}
+                  onChange={(event) => setShouldGenerateVideo(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400"
+                />
+                <div>
+                  <div className="font-semibold text-white">
+                    Generate MP4 after images are ready
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    Keep this on to start video generation automatically in the
+                    background. Turn it off to skip video until you need it.
+                  </p>
+                </div>
+              </label>
 
               <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -508,15 +701,27 @@ export default function ThreeDRenderToolPage() {
                     >
                       {isDownloadingZip ? "Building ZIP..." : "Download All Images"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        downloadAsset(result.video.filename, result.video.src)
-                      }
-                      className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5"
-                    >
-                      Download MP4
-                    </button>
+                    {previewVideo ? (
+                      <button
+                        type="button"
+                        onClick={() => downloadAsset(previewVideo.filename, previewVideo.src)}
+                        className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5"
+                      >
+                        Download MP4
+                      </button>
+                    ) : isGeneratingVideo ? (
+                      <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100">
+                        Generating video...
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleVideoRetry}
+                        className="inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-5 py-3 text-sm font-semibold text-cyan-100 transition duration-300 hover:bg-cyan-400/15"
+                      >
+                        {didSkipVideo ? "Generate Video" : "Retry Video"}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <div className="rounded-full border border-white/10 bg-slate-950/45 px-4 py-2 text-sm text-slate-300">
@@ -530,7 +735,7 @@ export default function ThreeDRenderToolPage() {
               <ThreeDViewer file={selectedFile} materialKey={activeMaterial} />
 
               <div className="flex flex-wrap gap-3">
-                {(Object.keys(MATERIAL_META) as RenderMaterialKey[]).map((materialKey) => (
+                {RENDER_MATERIAL_KEYS.map((materialKey) => (
                   <button
                     key={materialKey}
                     type="button"
@@ -552,9 +757,9 @@ export default function ThreeDRenderToolPage() {
                     Generated renders will land here.
                   </h3>
                   <p className="mt-3 mx-auto max-w-xl text-sm leading-7 text-slate-400">
-                    Once the API finishes, you will see the four camera angles
-                    for the active material tab plus a browser-ready 360-degree
-                    MP4 preview.
+                    Once the image API finishes, you will see the optimized
+                    camera set for the active material tab right away. The MP4
+                    preview can finish afterward without blocking the gallery.
                   </p>
                 </div>
               ) : (
@@ -649,29 +854,66 @@ export default function ThreeDRenderToolPage() {
                           360-Degree Video Preview
                         </div>
                         <h3 className="mt-2 font-[var(--font-heading)] text-2xl font-semibold text-white">
-                          Rotating MP4 encoded from {result.video.frameCount} frames
+                          {previewVideo
+                            ? `Rotating MP4 encoded from ${previewVideo.frameCount} frames`
+                            : "Background video generation"}
                         </h3>
                         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                          The preview video uses the neutral{" "}
-                          {MATERIAL_META[result.video.material].label.toLowerCase()}
-                          {" "}material so shape and silhouette stay readable across the
-                          full orbit.
+                          {previewVideo
+                            ? `The preview video uses the neutral ${MATERIAL_META[previewVideo.material].label.toLowerCase()} material so shape and silhouette stay readable across the full orbit.`
+                            : "PNG renders are already ready. The MP4 preview now runs independently so the UI can stay responsive."}
                         </p>
                       </div>
-                      <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-200">
-                        {result.video.width} x {result.video.height}
-                      </div>
+                      {previewVideo ? (
+                        <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-200">
+                          {previewVideo.width} x {previewVideo.height}
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black">
-                      <video
-                        src={result.video.src}
-                        controls
-                        loop
-                        playsInline
-                        className="aspect-square w-full"
-                      />
-                    </div>
+                    {previewVideo ? (
+                      <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black">
+                        <video
+                          src={previewVideo.src}
+                          controls
+                          loop
+                          playsInline
+                          className="aspect-square w-full"
+                        />
+                      </div>
+                    ) : isGeneratingVideo ? (
+                      <div className="mt-5 rounded-[1.5rem] border border-cyan-300/20 bg-cyan-400/10 px-5 py-8 text-center text-cyan-50">
+                        Generating video...
+                      </div>
+                    ) : videoError ? (
+                      <div className="mt-5 rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 p-5">
+                        <div className="text-sm text-rose-100">{videoError}</div>
+                        <button
+                          type="button"
+                          onClick={handleVideoRetry}
+                          className="mt-4 inline-flex items-center justify-center rounded-full border border-rose-200/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition duration-300 hover:bg-white/15"
+                        >
+                          Retry Video
+                        </button>
+                      </div>
+                    ) : didSkipVideo ? (
+                      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-5">
+                        <div className="text-sm text-slate-300">
+                          Video generation is currently skipped for this render.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleVideoRetry}
+                          className="mt-4 inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition duration-300 hover:bg-cyan-400/15"
+                        >
+                          Generate Video Now
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 px-5 py-8 text-center text-slate-300">
+                        Video is not available yet.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

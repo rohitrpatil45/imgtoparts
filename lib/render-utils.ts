@@ -34,6 +34,8 @@ import {
   OUTPUT_IMAGE_SIZE,
   OUTPUT_VIDEO_SIZE,
   PREVIEW_VIDEO_MATERIAL,
+  RENDER_ANGLE_KEYS,
+  RENDER_MATERIAL_KEYS,
   VIDEO_FRAME_COUNT
 } from "@/lib/3d-config";
 import { sanitizeFileStem } from "@/lib/filenames";
@@ -42,8 +44,11 @@ import type {
   RenderAngleKey,
   RenderMaterialKey,
   Rendered3DImage,
+  Rendered3DImagePack,
   Rendered3DMaterialGroup,
-  Rendered3DResult
+  Rendered3DResult,
+  Rendered3DStats,
+  Rendered3DVideo
 } from "@/lib/types";
 
 type NormalizedModelSnapshot = {
@@ -67,15 +72,116 @@ type SvgFrameRequest = {
   frameIndex?: number;
 };
 
+type StillFrameRequest = {
+  angle: RenderAngleKey;
+  cameraPosition: Vector3;
+  cameraUp?: Vector3;
+};
+
+type StoredRenderManifest = {
+  renderId: string;
+  sourceName: string;
+  extension: ModelFileExtension;
+  size: number;
+  fileStem: string;
+  sourceFileName: string;
+};
+
+type PreviewVideoJobState =
+  | {
+      status: "pending";
+      updatedAt: string;
+    }
+  | {
+      status: "complete";
+      updatedAt: string;
+      video: Rendered3DVideo;
+    }
+  | {
+      status: "error";
+      updatedAt: string;
+      error: string;
+    };
+
+type PipelineLogger = {
+  log: (step: string, details?: Record<string, unknown>) => void;
+  measure: <T>(
+    step: string,
+    task: () => Promise<T>,
+    details?: Record<string, unknown>
+  ) => Promise<T>;
+};
+
 const STUDIO_BACKGROUND = "#050816";
 const CAMERA_FOV = 34;
 const VIDEO_FRAME_RATE = 30;
 const FFMPEG_TIMEOUT_MS = 120000;
-const VIDEO_FRAME_BATCH_SIZE = 4;
+const VIDEO_FRAME_BATCH_SIZE = 8;
 const PUBLIC_RENDER_ROOT = path.join(process.cwd(), "public", "renders");
+const PRIVATE_RENDER_ROOT = path.join(process.cwd(), ".render-cache", "3d-renders");
+const RENDER_SOURCE_MANIFEST = "source.json";
 const DEFAULT_CAMERA_UP = new Vector3(0, 1, 0);
 
 let svgDomQueue = Promise.resolve();
+let resolvedFfmpegBinaryPromise: Promise<string> | null = null;
+const previewVideoJobs = new Map<string, Promise<void>>();
+const previewVideoStates = new Map<string, PreviewVideoJobState>();
+
+function createPipelineLogger(
+  scope: string,
+  context: Record<string, unknown> = {}
+): PipelineLogger {
+  const pipelineStartedAt = Date.now();
+
+  return {
+    log(step, details = {}) {
+      console.log(`[perf] ${scope}`, {
+        ...context,
+        ...details,
+        step,
+        elapsedMs: Date.now() - pipelineStartedAt
+      });
+    },
+    async measure(step, task, details = {}) {
+      const startedAt = Date.now();
+
+      console.log(`[perf] ${scope}:start`, {
+        ...context,
+        ...details,
+        step,
+        elapsedMs: startedAt - pipelineStartedAt
+      });
+
+      try {
+        const result = await task();
+
+        console.log(`[perf] ${scope}:done`, {
+          ...context,
+          ...details,
+          step,
+          durationMs: Date.now() - startedAt,
+          elapsedMs: Date.now() - pipelineStartedAt
+        });
+
+        return result;
+      } catch (error) {
+        console.error(`[perf] ${scope}:failed`, {
+          ...context,
+          ...details,
+          step,
+          durationMs: Date.now() - startedAt,
+          elapsedMs: Date.now() - pipelineStartedAt,
+          error
+        });
+        throw error;
+      }
+    }
+  };
+}
+
+function getTimestamp() {
+  return new Date().toISOString();
+}
 
 async function ensureRenderOutputDirectory(renderId: string) {
   const outputDirectory = path.join(PUBLIC_RENDER_ROOT, renderId);
@@ -85,8 +191,120 @@ async function ensureRenderOutputDirectory(renderId: string) {
   return outputDirectory;
 }
 
+async function ensurePrivateRenderDirectory(renderId: string) {
+  const outputDirectory = path.join(PRIVATE_RENDER_ROOT, renderId);
+
+  await fs.mkdir(outputDirectory, { recursive: true });
+
+  return outputDirectory;
+}
+
 function toPublicRenderPath(renderId: string, filename: string) {
   return `/renders/${renderId}/${filename}`;
+}
+
+function getRenderSourceManifestPath(renderId: string) {
+  return path.join(PRIVATE_RENDER_ROOT, renderId, RENDER_SOURCE_MANIFEST);
+}
+
+function getRenderSourceFilePath(renderId: string, sourceFileName: string) {
+  return path.join(PRIVATE_RENDER_ROOT, renderId, sourceFileName);
+}
+
+function buildPreviewVideoFilename(fileStem: string) {
+  return `${fileStem}-360-preview.mp4`;
+}
+
+async function persistRenderSource(
+  renderId: string,
+  file: File,
+  extension: ModelFileExtension,
+  buffer: Buffer
+) {
+  const fileStem = sanitizeFileStem(file.name);
+  const privateOutputDirectory = await ensurePrivateRenderDirectory(renderId);
+  const sourceFileName = `source.${extension}`;
+  const manifest: StoredRenderManifest = {
+    renderId,
+    sourceName: file.name,
+    extension,
+    size: file.size,
+    fileStem,
+    sourceFileName
+  };
+
+  await Promise.all([
+    fs.writeFile(path.join(privateOutputDirectory, sourceFileName), buffer),
+    fs.writeFile(
+      path.join(privateOutputDirectory, RENDER_SOURCE_MANIFEST),
+      JSON.stringify(manifest, null, 2),
+      "utf8"
+    )
+  ]);
+
+  return manifest;
+}
+
+async function loadStoredRenderManifest(renderId: string) {
+  try {
+    const manifestContent = await fs.readFile(
+      getRenderSourceManifestPath(renderId),
+      "utf8"
+    );
+    const manifest = JSON.parse(manifestContent) as StoredRenderManifest;
+
+    if (!manifest.sourceFileName || !manifest.extension || !manifest.sourceName) {
+      throw new Error("The saved render source metadata is incomplete.");
+    }
+
+    return manifest;
+  } catch (error) {
+    if (error instanceof Error && error.message === "The saved render source metadata is incomplete.") {
+      throw error;
+    }
+
+    throw new Error(
+      "The source file for this render could not be found. Please re-render the model images first."
+    );
+  }
+}
+
+async function loadStoredRenderSource(renderId: string) {
+  const manifest = await loadStoredRenderManifest(renderId);
+  const sourcePath = getRenderSourceFilePath(renderId, manifest.sourceFileName);
+  const buffer = await fs.readFile(sourcePath);
+
+  return {
+    manifest,
+    buffer
+  };
+}
+
+async function getExistingPreviewVideo(
+  renderId: string
+): Promise<Rendered3DVideo | null> {
+  try {
+    const manifest = await loadStoredRenderManifest(renderId);
+    const publicVideoPath = path.join(
+      PUBLIC_RENDER_ROOT,
+      renderId,
+      buildPreviewVideoFilename(manifest.fileStem)
+    );
+
+    await fs.access(publicVideoPath);
+
+    return {
+      filename: path.basename(publicVideoPath),
+      src: toPublicRenderPath(renderId, path.basename(publicVideoPath)),
+      mimeType: "video/mp4",
+      width: OUTPUT_VIDEO_SIZE,
+      height: OUTPUT_VIDEO_SIZE,
+      frameCount: VIDEO_FRAME_COUNT,
+      material: PREVIEW_VIDEO_MATERIAL
+    };
+  } catch {
+    return null;
+  }
 }
 
 function toArrayBuffer(buffer: Buffer) {
@@ -204,9 +422,6 @@ function normalizeModelSnapshot(source: Object3D): NormalizedModelSnapshot {
   const center = originalBox.getCenter(new Vector3());
   const maxAxis = Math.max(originalSize.x, originalSize.y, originalSize.z) || 1;
 
-  // Rendering works by recentering the uploaded geometry at the origin and then
-  // scaling the largest axis into a consistent two-unit box. That gives every file
-  // the same predictable framing before we calculate angle-specific cameras.
   const wrapper = new Group();
   wrapper.add(clonedRoot);
   clonedRoot.position.copy(center.multiplyScalar(-1));
@@ -230,8 +445,6 @@ function normalizeModelSnapshot(source: Object3D): NormalizedModelSnapshot {
 function createMaterialVariant(key: RenderMaterialKey) {
   const spec = MATERIAL_META[key];
 
-  // SVGRenderer is much more reliable with classic shaded materials than with
-  // the browser preview's PBR stack, so the export pipeline uses Phong shading.
   return new MeshPhongMaterial({
     color: new Color(spec.color),
     shininess: key === "metal" ? 90 : 22,
@@ -287,9 +500,6 @@ function getCameraPlacement(
   angle: RenderAngleKey,
   distance: number
 ): CameraPlacement {
-  // Camera angles are derived from the normalized model radius. That means the
-  // same front / side / top / perspective presets work for small and large uploads
-  // without hand-tuned per-model camera positions.
   switch (angle) {
     case "front":
       return {
@@ -357,11 +567,7 @@ async function renderSvgFramesBatch(
     renderer.setClearColor(new Color(STUDIO_BACKGROUND), 1);
 
     return Promise.all(
-      frames.map(async ({ cameraPosition, cameraUp, outputPath, frameIndex }) => {
-        if (typeof frameIndex === "number") {
-          console.log("Rendering frame:", frameIndex);
-        }
-
+      frames.map(async ({ cameraPosition, cameraUp, outputPath }) => {
         camera.position.copy(cameraPosition);
         camera.up.copy(cameraUp ?? DEFAULT_CAMERA_UP);
         camera.lookAt(0, 0, 0);
@@ -383,29 +589,60 @@ async function renderSvgFramesBatch(
   });
 }
 
-async function renderStillImage(
+function buildStillFrameRequests(
   snapshot: NormalizedModelSnapshot,
-  materialKey: RenderMaterialKey,
-  angle: RenderAngleKey
-) {
+  angles: readonly RenderAngleKey[]
+): StillFrameRequest[] {
   const distance = calculateCameraDistance(snapshot.radius);
-  const placement = getCameraPlacement(angle, distance);
 
-  console.log("Camera setup complete", {
-    material: materialKey,
-    angle,
-    position: placement.position.toArray(),
-    up: placement.up?.toArray() ?? null
-  });
+  return angles.map((angle) => {
+    const placement = getCameraPlacement(angle, distance);
 
-  const [pngBuffer] = await renderSvgFramesBatch(snapshot, materialKey, OUTPUT_IMAGE_SIZE, [
-    {
+    return {
+      angle,
       cameraPosition: placement.position,
       cameraUp: placement.up
-    }
-  ]);
+    };
+  });
+}
 
-  return pngBuffer;
+async function renderStillImagesBatch(
+  snapshot: NormalizedModelSnapshot,
+  materialKey: RenderMaterialKey,
+  angles: readonly RenderAngleKey[],
+  logger: PipelineLogger
+) {
+  const frameRequests = buildStillFrameRequests(snapshot, angles);
+
+  logger.log("camera-setup", {
+    material: materialKey,
+    angleCount: frameRequests.length,
+    angles: frameRequests.map((frame) => frame.angle)
+  });
+
+  const pngBuffers = await logger.measure(
+    `render-svg-batch:${materialKey}`,
+    async () =>
+      renderSvgFramesBatch(
+        snapshot,
+        materialKey,
+        OUTPUT_IMAGE_SIZE,
+        frameRequests.map(({ cameraPosition, cameraUp }) => ({
+          cameraPosition,
+          cameraUp
+        }))
+      ),
+    {
+      material: materialKey,
+      outputSize: OUTPUT_IMAGE_SIZE,
+      angleCount: frameRequests.length
+    }
+  );
+
+  return frameRequests.map((frameRequest, index) => ({
+    angle: frameRequest.angle,
+    pngBuffer: pngBuffers[index]
+  }));
 }
 
 async function isExecutableReachable(command: string) {
@@ -462,106 +699,122 @@ async function assertFrameSequence(frameDirectory: string) {
 }
 
 async function resolveFfmpegBinary() {
-  if (process.env.FFMPEG_PATH) {
-    try {
-      await fs.access(process.env.FFMPEG_PATH);
-      console.log("Using ffmpeg from FFMPEG_PATH:", process.env.FFMPEG_PATH);
-      return process.env.FFMPEG_PATH;
-    } catch {
+  if (resolvedFfmpegBinaryPromise) {
+    return resolvedFfmpegBinaryPromise;
+  }
+
+  resolvedFfmpegBinaryPromise = (async () => {
+    if (process.env.FFMPEG_PATH) {
+      try {
+        await fs.access(process.env.FFMPEG_PATH);
+        console.log("Using ffmpeg from FFMPEG_PATH:", process.env.FFMPEG_PATH);
+        return process.env.FFMPEG_PATH;
+      } catch {
+        throw new Error(
+          `FFMPEG_PATH is set but not readable: ${process.env.FFMPEG_PATH}`
+        );
+      }
+    }
+
+    if (await isExecutableReachable("ffmpeg")) {
+      console.log("Using ffmpeg from PATH");
+      return "ffmpeg";
+    }
+
+    const binaryName =
+      (ffmpegPath && path.basename(ffmpegPath)) ||
+      (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const binaryPath = await resolveReadablePath(
+      [ffmpegPath, path.join(process.cwd(), "node_modules", "ffmpeg-static", binaryName)].filter(
+        (candidate): candidate is string => Boolean(candidate)
+      )
+    );
+
+    if (!binaryPath) {
       throw new Error(
-        `FFMPEG_PATH is set but not readable: ${process.env.FFMPEG_PATH}`
+        "ffmpeg could not be found on PATH and no readable bundled binary was available. Install ffmpeg or provide FFMPEG_PATH."
       );
     }
+
+    console.log("ffmpeg not found on PATH. Using bundled binary:", binaryPath);
+    return binaryPath;
+  })();
+
+  try {
+    return await resolvedFfmpegBinaryPromise;
+  } catch (error) {
+    resolvedFfmpegBinaryPromise = null;
+    throw error;
   }
-
-  if (await isExecutableReachable("ffmpeg")) {
-    console.log("Using ffmpeg from PATH");
-    return "ffmpeg";
-  }
-
-  const binaryName =
-    (ffmpegPath && path.basename(ffmpegPath)) ||
-    (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-  const binaryPath = await resolveReadablePath([
-    ffmpegPath,
-    path.join(process.cwd(), "node_modules", "ffmpeg-static", binaryName)
-  ].filter((candidate): candidate is string => Boolean(candidate)));
-
-  if (!binaryPath) {
-    throw new Error(
-      "ffmpeg could not be found on PATH and no readable bundled binary was available. Install ffmpeg or provide FFMPEG_PATH."
-    );
-  }
-
-  console.log("ffmpeg not found on PATH. Using bundled binary:", binaryPath);
-  return binaryPath;
 }
 
-async function runFfmpeg(args: string[]) {
+async function runFfmpeg(args: string[], logger: PipelineLogger) {
   const binaryPath = await resolveFfmpegBinary();
 
-  console.log("ffmpeg encode started", {
-    binaryPath,
-    args
-  });
+  await logger.measure(
+    "ffmpeg-encode",
+    async () =>
+      new Promise<void>((resolve, reject) => {
+        let isSettled = false;
+        const child = spawn(binaryPath, args, {
+          stdio: ["ignore", "ignore", "pipe"],
+          windowsHide: true
+        });
+        const timeout = setTimeout(() => {
+          if (isSettled) {
+            return;
+          }
 
-  await new Promise<void>((resolve, reject) => {
-    let isSettled = false;
-    const child = spawn(binaryPath, args, {
-      stdio: ["ignore", "ignore", "pipe"],
-      windowsHide: true
-    });
-    const timeout = setTimeout(() => {
-      if (isSettled) {
-        return;
-      }
+          isSettled = true;
+          child.kill("SIGKILL");
+          reject(
+            new Error(
+              `ffmpeg timed out after ${FFMPEG_TIMEOUT_MS}ms while encoding the 360-degree preview.`
+            )
+          );
+        }, FFMPEG_TIMEOUT_MS);
 
-      isSettled = true;
-      child.kill("SIGKILL");
-      reject(
-        new Error(
-          `ffmpeg timed out after ${FFMPEG_TIMEOUT_MS}ms while encoding the 360-degree preview.`
-        )
-      );
-    }, FFMPEG_TIMEOUT_MS);
+        let stderr = "";
 
-    let stderr = "";
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk.toString();
+        });
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+        child.on("error", (error) => {
+          if (isSettled) {
+            return;
+          }
 
-    child.on("error", (error) => {
-      if (isSettled) {
-        return;
-      }
+          isSettled = true;
+          clearTimeout(timeout);
+          reject(error);
+        });
 
-      isSettled = true;
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (isSettled) {
-        return;
-      }
+        child.on("close", (code) => {
+          if (isSettled) {
+            return;
+          }
 
-      isSettled = true;
-      clearTimeout(timeout);
+          isSettled = true;
+          clearTimeout(timeout);
 
-      if (code === 0) {
-        console.log("ffmpeg encode finished");
-        resolve();
-        return;
-      }
+          if (code === 0) {
+            resolve();
+            return;
+          }
 
-      console.error("ffmpeg execution errors", stderr.trim());
-      reject(
-        new Error(
-          stderr.trim() || "ffmpeg failed while encoding the 360-degree preview."
-        )
-      );
-    });
-  });
+          reject(
+            new Error(
+              stderr.trim() || "ffmpeg failed while encoding the 360-degree preview."
+            )
+          );
+        });
+      }),
+    {
+      binaryPath,
+      args
+    }
+  );
 }
 
 async function generatePreviewVideo(
@@ -569,26 +822,47 @@ async function generatePreviewVideo(
   fileStem: string,
   renderId: string,
   publicOutputDirectory: string
-) {
-  // Video generation now renders a smaller 24-frame orbit in small batches so the
-  // server can yield between batches instead of appearing frozen during the final
-  // 92% stage of the pipeline.
-  const workingDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "three-render-"));
+): Promise<Rendered3DVideo> {
+  const logger = createPipelineLogger("preview-video", {
+    renderId,
+    fileStem
+  });
+  const workingDirectory = await logger.measure("create-temp-directory", async () =>
+    fs.mkdtemp(path.join(os.tmpdir(), "three-render-"))
+  );
   const frameDirectory = path.join(workingDirectory, "frames");
   const outputDirectory = path.join(workingDirectory, "output");
-  const outputPath = path.join(outputDirectory, `${fileStem}-360-preview.mp4`);
+  const outputPath = path.join(outputDirectory, buildPreviewVideoFilename(fileStem));
+  const publicVideoPath = path.join(publicOutputDirectory, path.basename(outputPath));
   const distance = calculateCameraDistance(snapshot.radius) * 1.08;
 
   try {
-    await fs.mkdir(frameDirectory, { recursive: true });
-    await fs.mkdir(outputDirectory, { recursive: true });
+    try {
+      await fs.access(publicVideoPath);
 
-    console.log("Camera setup complete", {
-      material: PREVIEW_VIDEO_MATERIAL,
-      angle: "orbit",
-      distance,
-      frameCount: VIDEO_FRAME_COUNT
-    });
+      logger.log("reuse-existing-video", {
+        publicVideoPath
+      });
+
+      return {
+        filename: path.basename(outputPath),
+        src: toPublicRenderPath(renderId, path.basename(outputPath)),
+        mimeType: "video/mp4",
+        width: OUTPUT_VIDEO_SIZE,
+        height: OUTPUT_VIDEO_SIZE,
+        frameCount: VIDEO_FRAME_COUNT,
+        material: PREVIEW_VIDEO_MATERIAL
+      };
+    } catch {
+      logger.log("no-existing-video");
+    }
+
+    await logger.measure("prepare-video-directories", async () =>
+      Promise.all([
+        fs.mkdir(frameDirectory, { recursive: true }),
+        fs.mkdir(outputDirectory, { recursive: true })
+      ])
+    );
 
     const frameRequests = Array.from({ length: VIDEO_FRAME_COUNT }, (_value, frame) => {
       const rotation = (frame / VIDEO_FRAME_COUNT) * Math.PI * 2;
@@ -607,6 +881,12 @@ async function generatePreviewVideo(
       } satisfies SvgFrameRequest;
     });
 
+    logger.log("video-camera-setup", {
+      material: PREVIEW_VIDEO_MATERIAL,
+      frameCount: VIDEO_FRAME_COUNT,
+      outputSize: OUTPUT_VIDEO_SIZE
+    });
+
     for (
       let batchStart = 0;
       batchStart < frameRequests.length;
@@ -614,61 +894,58 @@ async function generatePreviewVideo(
     ) {
       const batch = frameRequests.slice(batchStart, batchStart + VIDEO_FRAME_BATCH_SIZE);
 
-      try {
-        await renderSvgFramesBatch(
-          snapshot,
-          PREVIEW_VIDEO_MATERIAL,
-          OUTPUT_VIDEO_SIZE,
-          batch
-        );
-      } catch (error) {
-        console.error("async rendering failures", {
-          batchStart,
-          batchEnd: batchStart + batch.length - 1,
-          error
-        });
-        throw error;
-      }
+      await logger.measure(
+        `render-video-frame-batch:${batchStart}-${batchStart + batch.length - 1}`,
+        async () =>
+          renderSvgFramesBatch(
+            snapshot,
+            PREVIEW_VIDEO_MATERIAL,
+            OUTPUT_VIDEO_SIZE,
+            batch
+          ),
+        {
+          batchSize: batch.length
+        }
+      );
 
       await yieldToEventLoop();
     }
 
-    console.log("Frames generated:", VIDEO_FRAME_COUNT);
-    const frameCount = await assertFrameSequence(frameDirectory);
+    const frameCount = await logger.measure("verify-video-frames", async () =>
+      assertFrameSequence(frameDirectory)
+    );
 
-    console.log("Starting MP4 generation", {
-      frameDirectory,
-      outputPath,
-      frameCount
+    await runFfmpeg(
+      [
+        "-y",
+        "-framerate",
+        String(VIDEO_FRAME_RATE),
+        "-i",
+        path.join(frameDirectory, "frame-%04d.png"),
+        "-c:v",
+        "libx264",
+        "-crf",
+        "22",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        outputPath
+      ],
+      logger
+    );
+
+    await logger.measure("publish-video", async () => {
+      await assertPathExists(outputPath, "Generated MP4");
+      await fs.copyFile(outputPath, publicVideoPath);
+      await assertPathExists(publicVideoPath, "Public MP4");
     });
 
-    await runFfmpeg([
-      "-y",
-      "-framerate",
-      String(VIDEO_FRAME_RATE),
-      "-i",
-      path.join(frameDirectory, "frame-%04d.png"),
-      "-c:v",
-      "libx264",
-      "-crf",
-      "22",
-      "-preset",
-      "medium",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      outputPath
-    ]);
-
-    await assertPathExists(outputPath, "Generated MP4");
-    console.log("MP4 created at:", outputPath);
-    console.log("MP4 generation complete");
-
-    const publicVideoPath = path.join(publicOutputDirectory, path.basename(outputPath));
-
-    await fs.copyFile(outputPath, publicVideoPath);
-    await assertPathExists(publicVideoPath, "Public MP4");
+    logger.log("video-complete", {
+      frameCount
+    });
 
     return {
       filename: path.basename(outputPath),
@@ -680,11 +957,26 @@ async function generatePreviewVideo(
       material: PREVIEW_VIDEO_MATERIAL
     };
   } finally {
-    await fs.rm(workingDirectory, { recursive: true, force: true });
+    await logger.measure("cleanup-temp-directory", async () =>
+      fs.rm(workingDirectory, { recursive: true, force: true })
+    );
   }
 }
 
-export async function generate3DRenderPack(file: File): Promise<Rendered3DResult> {
+function buildRenderStats(snapshot: NormalizedModelSnapshot): Rendered3DStats {
+  return {
+    meshCount: snapshot.meshCount,
+    vertexCount: snapshot.vertexCount,
+    triangleCount: snapshot.triangleCount,
+    dimensions: {
+      x: Number(snapshot.originalSize.x.toFixed(2)),
+      y: Number(snapshot.originalSize.y.toFixed(2)),
+      z: Number(snapshot.originalSize.z.toFixed(2))
+    }
+  };
+}
+
+export async function generate3DImagePack(file: File): Promise<Rendered3DResult> {
   const extension = getModelExtension(file.name);
 
   if (!extension) {
@@ -693,92 +985,223 @@ export async function generate3DRenderPack(file: File): Promise<Rendered3DResult
 
   const fileStem = sanitizeFileStem(file.name);
   const renderId = randomUUID();
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const loadedModel = await loadModelFromBuffer(buffer, extension);
-  const snapshot = normalizeModelSnapshot(loadedModel);
-  const materials: Rendered3DMaterialGroup[] = [];
-  const images: Rendered3DImage[] = [];
-  const publicOutputDirectory = await ensureRenderOutputDirectory(renderId);
-
-  console.log("Render started", {
+  const logger = createPipelineLogger("image-pack", {
+    renderId,
     sourceName: file.name,
     extension,
     size: file.size
   });
 
-  try {
-    for (const materialKey of Object.keys(MATERIAL_META) as RenderMaterialKey[]) {
-      const materialImages: Rendered3DImage[] = [];
+  const buffer = await logger.measure("read-upload-buffer", async () =>
+    Buffer.from(await file.arrayBuffer())
+  );
 
-      for (const angle of Object.keys(CAMERA_META) as RenderAngleKey[]) {
-        try {
-          const pngBuffer = await renderStillImage(snapshot, materialKey, angle);
-          const filename = `${fileStem}-${materialKey}-${angle}.png`;
-          const outputPath = path.join(publicOutputDirectory, filename);
+  await logger.measure("persist-render-source", async () =>
+    persistRenderSource(renderId, file, extension, buffer)
+  );
 
-          await fs.writeFile(outputPath, pngBuffer);
-          await assertPathExists(outputPath, `Rendered still ${filename}`);
+  const loadedModel = await logger.measure("parse-model", async () =>
+    loadModelFromBuffer(buffer, extension)
+  );
+  const snapshot = await logger.measure("normalize-model", async () =>
+    Promise.resolve(normalizeModelSnapshot(loadedModel))
+  );
+  const publicOutputDirectory = await logger.measure("prepare-public-output", async () =>
+    ensureRenderOutputDirectory(renderId)
+  );
 
-          const image: Rendered3DImage = {
-            id: randomUUID(),
-            material: materialKey,
-            angle,
-            label: `${MATERIAL_META[materialKey].label} ${CAMERA_META[angle].label}`,
-            filename,
-            src: toPublicRenderPath(renderId, filename),
-            width: OUTPUT_IMAGE_SIZE,
-            height: OUTPUT_IMAGE_SIZE
-          };
+  const materialEntries = await logger.measure(
+    "render-material-groups",
+    async () =>
+      Promise.all(
+        RENDER_MATERIAL_KEYS.map(async (materialKey) =>
+          logger.measure(
+            `material-group:${materialKey}`,
+            async () => {
+              const renderedFrames = await renderStillImagesBatch(
+                snapshot,
+                materialKey,
+                RENDER_ANGLE_KEYS,
+                logger
+              );
 
-          materialImages.push(image);
-          images.push(image);
-        } catch (error) {
-          console.error("async rendering failures", {
-            material: materialKey,
-            angle,
-            error
-          });
-          throw error;
-        }
-      }
+              const images = await logger.measure(
+                `write-images:${materialKey}`,
+                async () =>
+                  Promise.all(
+                    renderedFrames.map(async ({ angle, pngBuffer }) => {
+                      const filename = `${fileStem}-${materialKey}-${angle}.png`;
+                      const outputPath = path.join(publicOutputDirectory, filename);
 
-      materials.push({
-        key: materialKey,
-        label: MATERIAL_META[materialKey].label,
-        description: MATERIAL_META[materialKey].description,
-        images: materialImages
-      });
+                      await fs.writeFile(outputPath, pngBuffer);
+
+                      return {
+                        id: randomUUID(),
+                        material: materialKey,
+                        angle,
+                        label: `${MATERIAL_META[materialKey].label} ${CAMERA_META[angle].label}`,
+                        filename,
+                        src: toPublicRenderPath(renderId, filename),
+                        width: OUTPUT_IMAGE_SIZE,
+                        height: OUTPUT_IMAGE_SIZE
+                      } satisfies Rendered3DImage;
+                    })
+                  ),
+                {
+                  material: materialKey,
+                  imageCount: renderedFrames.length
+                }
+              );
+
+              return {
+                key: materialKey,
+                label: MATERIAL_META[materialKey].label,
+                description: MATERIAL_META[materialKey].description,
+                images
+              } satisfies Rendered3DMaterialGroup;
+            },
+            {
+              material: materialKey,
+              angleCount: RENDER_ANGLE_KEYS.length
+            }
+          )
+        )
+      ),
+    {
+      materialCount: RENDER_MATERIAL_KEYS.length,
+      angleCount: RENDER_ANGLE_KEYS.length
     }
+  );
 
-    const video = await generatePreviewVideo(
-      snapshot,
-      fileStem,
-      renderId,
-      publicOutputDirectory
-    );
+  const images = materialEntries.flatMap((materialGroup) => materialGroup.images);
 
-    return {
-      id: randomUUID(),
-      sourceName: file.name,
-      extension,
-      size: file.size,
-      imageCount: images.length,
-      images,
-      materials,
-      video,
-      stats: {
-        meshCount: snapshot.meshCount,
-        vertexCount: snapshot.vertexCount,
-        triangleCount: snapshot.triangleCount,
-        dimensions: {
-          x: Number(snapshot.originalSize.x.toFixed(2)),
-          y: Number(snapshot.originalSize.y.toFixed(2)),
-          z: Number(snapshot.originalSize.z.toFixed(2))
-        }
-      }
+  logger.log("image-pack-complete", {
+    imageCount: images.length,
+    materialCount: materialEntries.length
+  });
+
+  return {
+    id: renderId,
+    renderId,
+    sourceName: file.name,
+    extension,
+    size: file.size,
+    imageCount: images.length,
+    images,
+    materials: materialEntries,
+    stats: buildRenderStats(snapshot)
+  };
+}
+
+export async function generate3DPreviewVideo(
+  renderId: string
+): Promise<Rendered3DVideo> {
+  const logger = createPipelineLogger("video-source-load", {
+    renderId
+  });
+  const { manifest, buffer } = await logger.measure("load-stored-source", async () =>
+    loadStoredRenderSource(renderId)
+  );
+  const loadedModel = await logger.measure("parse-model", async () =>
+    loadModelFromBuffer(buffer, manifest.extension)
+  );
+  const snapshot = await logger.measure("normalize-model", async () =>
+    Promise.resolve(normalizeModelSnapshot(loadedModel))
+  );
+  const publicOutputDirectory = await logger.measure("prepare-public-output", async () =>
+    ensureRenderOutputDirectory(renderId)
+  );
+
+  return generatePreviewVideo(
+    snapshot,
+    manifest.fileStem,
+    renderId,
+    publicOutputDirectory
+  );
+}
+
+export async function queue3DPreviewVideo(renderId: string) {
+  const existingVideo = await getExistingPreviewVideo(renderId);
+
+  if (existingVideo) {
+    const completedState: PreviewVideoJobState = {
+      status: "complete",
+      updatedAt: getTimestamp(),
+      video: existingVideo
     };
-  } catch (error) {
-    console.error("file writing issues", error);
-    throw error;
+
+    previewVideoStates.set(renderId, completedState);
+
+    return completedState;
   }
+
+  const existingState = previewVideoStates.get(renderId);
+
+  if (existingState?.status === "pending" && previewVideoJobs.has(renderId)) {
+    return existingState;
+  }
+
+  const pendingState: PreviewVideoJobState = {
+    status: "pending",
+    updatedAt: getTimestamp()
+  };
+
+  previewVideoStates.set(renderId, pendingState);
+
+  const job = (async () => {
+    try {
+      const video = await generate3DPreviewVideo(renderId);
+
+      previewVideoStates.set(renderId, {
+        status: "complete",
+        updatedAt: getTimestamp(),
+        video
+      });
+    } catch (error) {
+      previewVideoStates.set(renderId, {
+        status: "error",
+        updatedAt: getTimestamp(),
+        error:
+          error instanceof Error
+            ? error.message
+            : "We could not generate the preview video."
+      });
+    } finally {
+      previewVideoJobs.delete(renderId);
+    }
+  })();
+
+  previewVideoJobs.set(renderId, job);
+
+  return pendingState;
+}
+
+export async function get3DPreviewVideoStatus(
+  renderId: string
+): Promise<PreviewVideoJobState | null> {
+  const existingState = previewVideoStates.get(renderId);
+
+  if (existingState) {
+    return existingState;
+  }
+
+  const existingVideo = await getExistingPreviewVideo(renderId);
+
+  if (!existingVideo) {
+    return null;
+  }
+
+  const completedState: PreviewVideoJobState = {
+    status: "complete",
+    updatedAt: getTimestamp(),
+    video: existingVideo
+  };
+
+  previewVideoStates.set(renderId, completedState);
+
+  return completedState;
+}
+
+export async function generate3DRenderPack(file: File): Promise<Rendered3DImagePack> {
+  return generate3DImagePack(file);
 }
