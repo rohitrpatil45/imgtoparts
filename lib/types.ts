@@ -100,3 +100,67 @@ export type RenderVideoResponse = {
   status?: "video_complete" | "video_pending" | "video_failed";
   error?: string;
 };
+
+export type StlMaterialPreset = "clay" | "metal" | "wood";
+
+export type StlBackgroundPreset = "white" | "dark";
+
+export type StlRenderViewKey = "left" | "right" | "top" | "bottom";
+
+export type StlRenderImageKey = StlRenderViewKey | "thumbnail";
+
+export type StlRenderImageAsset = {
+  key: StlRenderImageKey;
+  label: string;
+  filename: string;
+  src: string;
+  outputPath: string;
+  width: number;
+  height: number;
+  mimeType: "image/png";
+};
+
+export type StlRenderVideoAsset = {
+  filename: string;
+  src: string;
+  outputPath: string;
+  width: number;
+  height: number;
+  frameCount: number;
+  frameRate: number;
+  codec: "h264";
+  mimeType: "video/mp4";
+};
+
+export type StlRenderStats = {
+  meshCount: number;
+  vertexCount: number;
+  triangleCount: number;
+  dimensions: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  normalizedScale: number;
+  cameraDistance: number;
+  backend: string;
+  gpuEnabled: boolean;
+  durationMs: number;
+};
+
+export type StlRenderResult = {
+  renderId: string;
+  sourceName: string;
+  materialPreset: StlMaterialPreset;
+  background: StlBackgroundPreset;
+  outputDirectory: string;
+  images: Record<StlRenderViewKey, StlRenderImageAsset>;
+  video: StlRenderVideoAsset;
+  thumbnail?: StlRenderImageAsset;
+  stats: StlRenderStats;
+};
+
+export type StlRenderResponse = {
+  result?: StlRenderResult;
+  error?: string;
+};

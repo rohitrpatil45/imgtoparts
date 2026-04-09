@@ -1,25 +1,28 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ThreeDViewer } from "@/components/3d-viewer";
 import { Container } from "@/components/ui/container";
+import { formatFileSize } from "@/lib/3d-config";
 import {
-  CAMERA_META,
-  formatFileSize,
-  getModelExtension,
-  MATERIAL_META,
-  MAX_3D_FILE_SIZE,
-  RENDER_ANGLE_KEYS,
-  RENDER_MATERIAL_KEYS
-} from "@/lib/3d-config";
-import { download3DRenderZipBundle, downloadAsset } from "@/lib/downloads";
+  DEFAULT_BACKGROUND,
+  MAX_STL_FILE_SIZE,
+  STL_BACKGROUND_META,
+  STL_MATERIAL_PRESET_KEYS,
+  STL_MATERIAL_PRESET_META,
+  STL_VIEW_KEYS,
+  STL_VIEW_META
+} from "@/lib/stl-render-config";
+import {
+  downloadAsset,
+  downloadStlRenderZipBundle
+} from "@/lib/downloads";
 import type {
-  Render3DImagesResponse,
   RenderMaterialKey,
-  RenderVideoResponse,
-  Rendered3DResult
+  StlBackgroundPreset,
+  StlRenderResponse,
+  StlRenderResult
 } from "@/lib/types";
 
 function StatCard({
@@ -30,87 +33,43 @@ function StatCard({
   value: string;
 }) {
   return (
-    <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-4">
-      <div className="text-[11px] uppercase tracking-[0.26em] text-slate-400">
+    <div className="rounded-[1.5rem] border border-stone-200 bg-white p-4 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
+      <div className="text-[11px] uppercase tracking-[0.26em] text-stone-500">
         {label}
       </div>
-      <div className="mt-3 font-[var(--font-heading)] text-2xl font-semibold text-white">
+      <div className="mt-3 font-[var(--font-heading)] text-2xl font-semibold text-stone-900">
         {value}
       </div>
     </div>
   );
 }
 
-function formatDimensionTriplet(result: Rendered3DResult) {
+function formatTriplet(result: StlRenderResult) {
   const { x, y, z } = result.stats.dimensions;
-
   return `${x} x ${y} x ${z}`;
 }
-
-function isRendered3DResult(value: unknown): value is Rendered3DResult {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<Rendered3DResult>;
-
-  return (
-    typeof candidate.id === "string" &&
-    typeof candidate.renderId === "string" &&
-    Array.isArray(candidate.materials) &&
-    Array.isArray(candidate.images) &&
-    Boolean(candidate.stats)
-  );
-}
-
-function buildResultFromPayload(
-  payload: Partial<Render3DImagesResponse>
-): Rendered3DResult | null {
-  if (isRendered3DResult(payload.result)) {
-    return payload.result;
-  }
-
-  return null;
-}
-
-const RENDER_IMAGE_COUNT = RENDER_MATERIAL_KEYS.length * RENDER_ANGLE_KEYS.length;
-const RENDER_ANGLE_SUMMARY = RENDER_ANGLE_KEYS
-  .map((angle) => CAMERA_META[angle].label.toLowerCase())
-  .join(", ");
 
 export default function ThreeDRenderToolPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const progressTimerRef = useRef<number | null>(null);
-  const videoPollTimerRef = useRef<number | null>(null);
-  const latestRenderIdRef = useRef<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [result, setResult] = useState<Rendered3DResult | null>(null);
-  const [activeMaterial, setActiveMaterial] = useState<RenderMaterialKey>(
-    RENDER_MATERIAL_KEYS[0]
-  );
+  const [result, setResult] = useState<StlRenderResult | null>(null);
+  const [materialPreset, setMaterialPreset] =
+    useState<RenderMaterialKey>("clay");
+  const [background, setBackground] =
+    useState<StlBackgroundPreset>(DEFAULT_BACKGROUND);
+  const [includeThumbnail, setIncludeThumbnail] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
-  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
-  const [shouldGenerateVideo, setShouldGenerateVideo] = useState(true);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("Ready to render");
   const [error, setError] = useState<string | null>(null);
-  const [videoError, setVideoError] = useState<string | null>(null);
-  const [didSkipVideo, setDidSkipVideo] = useState(false);
-
-  const activeMaterialGroup =
-    result?.materials.find((material) => material.key === activeMaterial) ?? null;
-  const previewVideo = result?.video ?? null;
 
   useEffect(() => {
     return () => {
       if (progressTimerRef.current) {
         window.clearInterval(progressTimerRef.current);
-      }
-
-      if (videoPollTimerRef.current) {
-        window.clearTimeout(videoPollTimerRef.current);
       }
     };
   }, []);
@@ -122,263 +81,95 @@ export default function ThreeDRenderToolPage() {
     }
   }
 
-  function stopVideoPolling() {
-    if (videoPollTimerRef.current) {
-      window.clearTimeout(videoPollTimerRef.current);
-      videoPollTimerRef.current = null;
-    }
-  }
-
   function startProgressSimulation() {
     stopProgress();
 
     const steps = [
-      { value: 12, label: "Validating STL/OBJ payload" },
-      { value: 24, label: "Uploading source geometry to the render API" },
-      { value: 42, label: "Centering the model and normalizing scale" },
-      { value: 63, label: "Rendering material variations and camera angles" },
-      { value: 82, label: "Writing production PNG outputs" },
-      { value: 94, label: "Preparing the image render pack" }
+      { value: 10, label: "Validating STL mesh integrity" },
+      { value: 24, label: "Centering the model at world origin" },
+      { value: 42, label: "Normalizing scale and applying smooth shading" },
+      { value: 61, label: "Rendering left, right, top, and bottom previews" },
+      { value: 82, label: "Encoding the 360 degree MP4" },
+      { value: 94, label: "Writing preview assets to disk" }
     ];
-    let stepIndex = 0;
+    let index = 0;
 
     setProgress(steps[0].value);
     setProgressLabel(steps[0].label);
 
     progressTimerRef.current = window.setInterval(() => {
-      stepIndex = Math.min(stepIndex + 1, steps.length - 1);
-      setProgress(steps[stepIndex].value);
-      setProgressLabel(steps[stepIndex].label);
-    }, 1200);
+      index = Math.min(index + 1, steps.length - 1);
+      setProgress(steps[index].value);
+      setProgressLabel(steps[index].label);
+    }, 1400);
+  }
+
+  function resetSession() {
+    stopProgress();
+    setSelectedFile(null);
+    setResult(null);
+    setError(null);
+    setProgress(0);
+    setProgressLabel("Ready to render");
   }
 
   function validateAndSelectFile(file: File) {
-    const extension = getModelExtension(file.name);
-
-    if (!extension) {
-      setError("Unsupported file type. Upload an STL or OBJ model.");
+    if (!file.name.toLowerCase().endsWith(".stl")) {
+      setError("Only STL uploads are supported in this render pipeline.");
       return;
     }
 
-    if (file.size > MAX_3D_FILE_SIZE) {
-      setError("File is too large. Please keep uploads at or below 20 MB.");
+    if (!file.size) {
+      setError("The selected STL file is empty.");
+      return;
+    }
+
+    if (file.size > MAX_STL_FILE_SIZE) {
+      setError(
+        `The file is too large. Keep STL uploads at or below ${formatFileSize(MAX_STL_FILE_SIZE)}.`
+      );
       return;
     }
 
     setSelectedFile(file);
     setResult(null);
     setError(null);
-    setVideoError(null);
-    setDidSkipVideo(false);
-    setIsGeneratingVideo(false);
-    stopVideoPolling();
-    latestRenderIdRef.current = null;
-    setActiveMaterial(RENDER_MATERIAL_KEYS[0]);
     setProgress(0);
     setProgressLabel("Ready to render");
   }
 
-  function applyCompletedVideo(renderId: string, payload: RenderVideoResponse) {
-    if (latestRenderIdRef.current !== renderId || !payload.video) {
-      return;
-    }
-
-    stopVideoPolling();
-    setResult((currentResult) => {
-      if (!currentResult || currentResult.renderId !== renderId) {
-        return currentResult;
-      }
-
-      return {
-        ...currentResult,
-        video: payload.video
-      };
-    });
-    setIsGeneratingVideo(false);
-    setVideoError(null);
-  }
-
-  async function pollVideoStatus(renderId: string) {
-    try {
-      const response = await fetch(
-        `/api/render-video?renderId=${encodeURIComponent(renderId)}`,
-        {
-          method: "GET",
-          cache: "no-store"
-        }
-      );
-      const rawBody = await response.text();
-      let payload: RenderVideoResponse | null = null;
-
-      try {
-        payload = JSON.parse(rawBody) as RenderVideoResponse;
-      } catch {
-        throw new Error("Video status API returned an invalid response.");
-      }
-
-      if (latestRenderIdRef.current !== renderId) {
-        return;
-      }
-
-      if (payload?.status === "video_complete" && payload.video) {
-        applyCompletedVideo(renderId, payload);
-        return;
-      }
-
-      if (payload?.status === "video_pending" && response.status === 202) {
-        videoPollTimerRef.current = window.setTimeout(() => {
-          void pollVideoStatus(renderId);
-        }, 1500);
-        return;
-      }
-
-      throw new Error(payload?.error ?? "We could not generate the preview video.");
-    } catch (videoGenerationError) {
-      if (latestRenderIdRef.current !== renderId) {
-        return;
-      }
-
-      stopVideoPolling();
-      setIsGeneratingVideo(false);
-      setVideoError(
-        videoGenerationError instanceof Error
-          ? videoGenerationError.message
-          : "Unexpected video generation error."
-      );
-    }
-  }
-
-  async function generateVideoForRender(renderId: string) {
-    latestRenderIdRef.current = renderId;
-    stopVideoPolling();
-    setIsGeneratingVideo(true);
-    setVideoError(null);
-    setDidSkipVideo(false);
-
-    try {
-      const response = await fetch("/api/render-video", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({ renderId })
-      });
-      const rawBody = await response.text();
-      let payload: RenderVideoResponse | null = null;
-
-      try {
-        payload = JSON.parse(rawBody) as RenderVideoResponse;
-      } catch {
-        throw new Error("Video API returned an invalid response.");
-      }
-
-      if (latestRenderIdRef.current !== renderId) {
-        return;
-      }
-
-      if (payload?.status === "video_complete" && payload.video) {
-        applyCompletedVideo(renderId, payload);
-        return;
-      }
-
-      if (payload?.status === "video_pending" && response.status === 202) {
-        void pollVideoStatus(renderId);
-        return;
-      }
-
-      throw new Error(payload?.error ?? "We could not generate the preview video.");
-    } catch (videoGenerationError) {
-      if (latestRenderIdRef.current !== renderId) {
-        return;
-      }
-
-      stopVideoPolling();
-      setIsGeneratingVideo(false);
-      setVideoError(
-        videoGenerationError instanceof Error
-          ? videoGenerationError.message
-          : "Unexpected video generation error."
-      );
-    }
-  }
-
   async function handleGenerate() {
-    console.log("Render button clicked");
-
     if (!selectedFile) {
-      setError("Select an STL or OBJ file before rendering.");
+      setError("Select an STL file before rendering.");
       return;
     }
 
     const formData = new FormData();
     formData.append("file", selectedFile);
+    formData.append("materialPreset", materialPreset);
+    formData.append("background", background);
+    formData.append("includeThumbnail", String(includeThumbnail));
 
     setIsRendering(true);
     setError(null);
-    setVideoError(null);
-    setDidSkipVideo(false);
-    setIsGeneratingVideo(false);
-    stopVideoPolling();
-    latestRenderIdRef.current = null;
     startProgressSimulation();
 
     try {
-      console.log("Calling render API", {
-        endpoint: "/api/render-3d",
-        fileName: selectedFile.name,
-        fileSize: selectedFile.size
-      });
-
-      const response = await fetch("/api/render-3d", {
+      const response = await fetch("/render", {
         method: "POST",
         body: formData
       });
-      const rawBody = await response.text();
-      let payload: Render3DImagesResponse | null = null;
+      const payload = (await response.json()) as StlRenderResponse;
 
-      try {
-        payload = JSON.parse(rawBody) as Render3DImagesResponse;
-      } catch {
-        throw new Error("Render API returned an invalid response.");
+      if (!response.ok || !payload.result) {
+        throw new Error(payload.error ?? "The STL render failed.");
       }
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "We could not render this 3D file.");
-      }
-
-      console.log("Response received:", payload);
-
-      const normalizedResult = buildResultFromPayload(payload ?? {});
-
-      if (!normalizedResult) {
-        console.error("Invalid response:", payload);
-        throw new Error("Render API response was missing image output.");
-      }
-
-      console.log("Render API response received", {
-        imageCount: normalizedResult.imageCount,
-        materialGroups: normalizedResult.materials.length
-      });
 
       stopProgress();
       setProgress(100);
-      setResult(normalizedResult);
-      setActiveMaterial(
-        normalizedResult.materials[0]?.key ?? RENDER_MATERIAL_KEYS[0]
-      );
-      setProgressLabel(
-        shouldGenerateVideo
-          ? "PNG renders ready. Video is generating in the background"
-          : "PNG render pack complete"
-      );
-
-      if (shouldGenerateVideo) {
-        void generateVideoForRender(normalizedResult.renderId);
-      } else {
-        setDidSkipVideo(true);
-      }
+      setProgressLabel("Render pack complete");
+      setResult(payload.result);
     } catch (renderError) {
-      console.error("Render error:", renderError);
       stopProgress();
       setProgress(0);
       setProgressLabel("Ready to render");
@@ -399,7 +190,7 @@ export default function ThreeDRenderToolPage() {
 
     try {
       setIsDownloadingZip(true);
-      await download3DRenderZipBundle(result);
+      await downloadStlRenderZipBundle(result);
     } catch (downloadError) {
       setError(
         downloadError instanceof Error
@@ -411,93 +202,65 @@ export default function ThreeDRenderToolPage() {
     }
   }
 
-  function handleClear() {
-    stopProgress();
-    stopVideoPolling();
-    latestRenderIdRef.current = null;
-    setSelectedFile(null);
-    setResult(null);
-    setError(null);
-    setVideoError(null);
-    setDidSkipVideo(false);
-    setIsGeneratingVideo(false);
-    setActiveMaterial(RENDER_MATERIAL_KEYS[0]);
-    setProgress(0);
-    setProgressLabel("Ready to render");
-  }
-
-  function handleVideoRetry() {
-    if (!result) {
-      return;
-    }
-
-    void generateVideoForRender(result.renderId);
-  }
-
   return (
     <Container className="pb-16 pt-10 sm:pt-14">
       <div className="space-y-8">
-        <section className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-white/5 p-7 shadow-premium backdrop-blur-xl sm:p-9">
+        <section className="relative overflow-hidden rounded-[2.25rem] border border-stone-200 bg-[#f6f1e8] p-7 shadow-[0_35px_90px_rgba(28,25,23,0.09)] sm:p-9">
           <div
             className="pointer-events-none absolute inset-0"
             style={{
               background:
-                "radial-gradient(circle at 82% 18%, rgba(56,189,248,0.18), transparent 18%), radial-gradient(circle at 18% 24%, rgba(37,99,235,0.18), transparent 24%), linear-gradient(135deg, rgba(10,18,36,0.5), rgba(4,10,20,0.92))"
+                "radial-gradient(circle at 12% 18%, rgba(202,138,4,0.16), transparent 28%), radial-gradient(circle at 86% 16%, rgba(59,130,246,0.12), transparent 24%), linear-gradient(135deg, rgba(255,255,255,0.76), rgba(245,236,224,0.96))"
             }}
           />
           <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <p className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.34em] text-cyan-100">
-                3D STL/OBJ Auto Renderer
+              <p className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.34em] text-amber-900">
+                STL Preview Pipeline
               </p>
-              <h1 className="mt-5 font-[var(--font-heading)] text-4xl font-semibold text-white sm:text-5xl">
-                Turn one CAD upload into a polished multi-angle render pack.
+              <h1 className="mt-5 font-[var(--font-heading)] text-4xl font-semibold text-stone-950 sm:text-5xl">
+                Turn one STL upload into a clean four-view image set and a 360 MP4.
               </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-8 text-slate-300 sm:text-base">
-                Upload an STL or OBJ model to generate {RENDER_IMAGE_COUNT} production
-                PNG renders across {RENDER_ANGLE_SUMMARY} views, then generate the
-                rotating MP4 preview separately in the background.
+              <p className="mt-4 max-w-2xl text-sm leading-8 text-stone-700 sm:text-base">
+                This server-side pipeline validates the mesh, centers it at the
+                origin, normalizes scale, applies smooth shading, renders the
+                required catalog views, and exports a rotating marketplace preview.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Link
-                href="/tool"
-                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition duration-300 hover:bg-white/15"
-              >
-                Open Crop Tool
-              </Link>
               <button
                 type="button"
                 onClick={handleGenerate}
                 disabled={!selectedFile || isRendering}
-                className="inline-flex items-center justify-center rounded-full bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-stone-50 transition duration-300 hover:-translate-y-0.5 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isRendering
-                  ? "Rendering PNGs..."
-                  : shouldGenerateVideo
-                    ? "Generate PNGs + Background MP4"
-                    : "Generate PNGs Only"}
+                {isRendering ? "Rendering assets..." : "Generate Assets"}
+              </button>
+              <button
+                type="button"
+                onClick={resetSession}
+                className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition duration-300 hover:border-stone-400 hover:bg-stone-50"
+              >
+                Reset
               </button>
             </div>
           </div>
         </section>
 
         <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl">
+          <section className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-[0_28px_80px_rgba(28,25,23,0.08)]">
             <div className="space-y-6">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-cyan-200">
+                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-amber-700">
                   Upload Console
                 </p>
-                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-semibold text-white">
-                  Drop a single STL or OBJ and render it server-side.
+                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-semibold text-stone-950">
+                  Feed the renderer one STL and get production-ready previews back.
                 </h2>
-                <p className="mt-3 text-sm leading-7 text-slate-300">
-                  The pipeline validates the model, normalizes scale, renders
-                  a reduced set of material and camera presets, returns the PNG
-                  pack first,
-                  and can generate the rotating MP4 in a second background pass.
+                <p className="mt-3 text-sm leading-7 text-stone-600">
+                  The API endpoint is `POST /render` and returns the PNG URLs,
+                  MP4 URL, output paths, and render statistics in a single response.
                 </p>
               </div>
 
@@ -505,14 +268,14 @@ export default function ThreeDRenderToolPage() {
                 <button
                   type="button"
                   onClick={() => inputRef.current?.click()}
-                  className="inline-flex flex-1 items-center justify-center rounded-full bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300"
+                  className="inline-flex flex-1 items-center justify-center rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-stone-950 transition duration-300 hover:-translate-y-0.5 hover:bg-amber-400"
                 >
-                  Select 3D File
+                  Select STL File
                 </button>
                 <button
                   type="button"
-                  onClick={handleClear}
-                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/45 px-5 py-3 text-sm font-semibold text-slate-200 transition duration-300 hover:border-rose-300/30 hover:bg-rose-400/10"
+                  onClick={resetSession}
+                  className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-700 transition duration-300 hover:border-rose-300 hover:bg-rose-50"
                 >
                   Clear
                 </button>
@@ -521,7 +284,7 @@ export default function ThreeDRenderToolPage() {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".stl,.obj"
+                accept=".stl"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
@@ -558,11 +321,11 @@ export default function ThreeDRenderToolPage() {
                 }}
                 className={`rounded-[1.75rem] border border-dashed px-6 py-10 text-center transition duration-300 ${
                   isDragging
-                    ? "border-cyan-300/70 bg-cyan-400/10"
-                    : "border-white/15 bg-slate-950/40"
+                    ? "border-amber-400 bg-amber-50"
+                    : "border-stone-300 bg-stone-50"
                 }`}
               >
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-cyan-100">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl border border-stone-200 bg-white text-amber-700">
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 24 24"
@@ -578,115 +341,158 @@ export default function ThreeDRenderToolPage() {
                     />
                   </svg>
                 </div>
-                <p className="mt-5 font-[var(--font-heading)] text-xl font-semibold text-white">
-                  Drag and drop your 3D file here
+                <p className="mt-5 font-[var(--font-heading)] text-xl font-semibold text-stone-900">
+                  Drag and drop your STL file here
                 </p>
-                <p className="mt-2 text-sm text-slate-400">
-                  STL or OBJ only, up to 20 MB per upload
+                <p className="mt-2 text-sm text-stone-500">
+                  STL only, up to {formatFileSize(MAX_STL_FILE_SIZE)}
                 </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
-                <StatCard
-                  label="Accepted Formats"
-                  value="STL / OBJ"
-                />
-                <StatCard
-                  label="Still Outputs"
-                  value={`${RENDER_IMAGE_COUNT} PNGs`}
-                />
-                <StatCard
-                  label="Video Output"
-                  value="Async MP4"
-                />
+                <StatCard label="Still Outputs" value="4 PNGs" />
+                <StatCard label="Video Output" value="1 MP4" />
+                <StatCard label="Frames" value="120" />
               </div>
 
-              <label className="flex items-start gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-5">
-                <input
-                  type="checkbox"
-                  checked={shouldGenerateVideo}
-                  onChange={(event) => setShouldGenerateVideo(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400"
-                />
-                <div>
-                  <div className="font-semibold text-white">
-                    Generate MP4 after images are ready
+              <div className="grid gap-4">
+                <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                    Material Preset
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-slate-400">
-                    Keep this on to start video generation automatically in the
-                    background. Turn it off to skip video until you need it.
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {STL_MATERIAL_PRESET_KEYS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setMaterialPreset(preset)}
+                        className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-300 ${
+                          materialPreset === preset
+                            ? "border-stone-900 bg-stone-900 text-white"
+                            : "border-stone-300 bg-white text-stone-700 hover:border-stone-500"
+                        }`}
+                      >
+                        {STL_MATERIAL_PRESET_META[preset].label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-stone-600">
+                    {STL_MATERIAL_PRESET_META[materialPreset].description}
                   </p>
                 </div>
-              </label>
 
-              <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-5">
+                <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                    Background
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {(Object.keys(STL_BACKGROUND_META) as StlBackgroundPreset[]).map(
+                      (key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setBackground(key)}
+                          className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-300 ${
+                            background === key
+                              ? "border-stone-900 bg-stone-900 text-white"
+                              : "border-stone-300 bg-white text-stone-700 hover:border-stone-500"
+                          }`}
+                        >
+                          {STL_BACKGROUND_META[key].label}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <label className="flex items-start gap-3 rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
+                  <input
+                    type="checkbox"
+                    checked={includeThumbnail}
+                    onChange={(event) =>
+                      setIncludeThumbnail(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4 rounded border-stone-300 text-amber-500 focus:ring-amber-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-stone-900">
+                      Generate square thumbnail
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-stone-600">
+                      Adds a marketplace-friendly square thumbnail alongside the
+                      core PNG views and MP4.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
+                    <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
                       Selected File
                     </div>
-                    <div className="mt-3 font-[var(--font-heading)] text-xl font-semibold text-white">
-                      {selectedFile ? selectedFile.name : "No file selected"}
+                    <div className="mt-3 font-[var(--font-heading)] text-xl font-semibold text-stone-950">
+                      {selectedFile ? selectedFile.name : "No STL selected"}
                     </div>
-                    <div className="mt-2 text-sm text-slate-400">
+                    <div className="mt-2 text-sm text-stone-600">
                       {selectedFile
-                        ? `${formatFileSize(selectedFile.size)} - ${selectedFile.name
-                            .split(".")
-                            .pop()
-                            ?.toUpperCase()}`
-                        : "Choose a model to unlock the live 3D preview and render pipeline."}
+                        ? `${formatFileSize(selectedFile.size)}`
+                        : "Choose a model to preview it and run the render pipeline."}
                     </div>
                   </div>
 
                   {selectedFile ? (
-                    <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.26em] text-cyan-100">
+                    <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.26em] text-emerald-700">
                       Ready
                     </div>
                   ) : null}
                 </div>
               </div>
 
-              <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-5">
+              <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
+                    <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
                       Render Progress
                     </div>
-                    <div className="mt-3 font-medium text-white">{progressLabel}</div>
+                    <div className="mt-3 font-medium text-stone-900">
+                      {progressLabel}
+                    </div>
                   </div>
-                  <div className="text-sm font-semibold text-cyan-100">
+                  <div className="text-sm font-semibold text-stone-700">
                     {progress}%
                   </div>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/5">
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-stone-200">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-sky-300 transition-all duration-500"
+                    className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-stone-900 transition-all duration-500"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
               </div>
 
               {error ? (
-                <div className="rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {error}
                 </div>
               ) : null}
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-premium backdrop-blur-xl">
+          <section className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-[0_28px_80px_rgba(28,25,23,0.08)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-blue-200">
+                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-sky-700">
                   Preview Studio
                 </p>
-                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-semibold text-white">
-                  Inspect the model, then review the finished render pack.
+                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-semibold text-stone-950">
+                  Review the STL live, then inspect the exported assets.
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-                  Material tabs sync the live viewer with the generated stills,
-                  so the preview area feels like a real production console instead
-                  of a placeholder gallery.
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600">
+                  The live viewer uses the same preset selection as the render
+                  job, so what you inspect before upload closely matches the
+                  generated catalog output.
                 </p>
               </div>
 
@@ -697,34 +503,22 @@ export default function ThreeDRenderToolPage() {
                       type="button"
                       onClick={handleZipDownload}
                       disabled={isDownloadingZip}
-                      className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition duration-300 hover:border-cyan-300/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-800 transition duration-300 hover:border-stone-500 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isDownloadingZip ? "Building ZIP..." : "Download All Images"}
+                      {isDownloadingZip ? "Building ZIP..." : "Download Full Pack"}
                     </button>
-                    {previewVideo ? (
-                      <button
-                        type="button"
-                        onClick={() => downloadAsset(previewVideo.filename, previewVideo.src)}
-                        className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5"
-                      >
-                        Download MP4
-                      </button>
-                    ) : isGeneratingVideo ? (
-                      <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100">
-                        Generating video...
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleVideoRetry}
-                        className="inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-5 py-3 text-sm font-semibold text-cyan-100 transition duration-300 hover:bg-cyan-400/15"
-                      >
-                        {didSkipVideo ? "Generate Video" : "Retry Video"}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadAsset(result.video.filename, result.video.src)
+                      }
+                      className="inline-flex items-center justify-center rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-stone-800"
+                    >
+                      Download MP4
+                    </button>
                   </>
                 ) : (
-                  <div className="rounded-full border border-white/10 bg-slate-950/45 px-4 py-2 text-sm text-slate-300">
+                  <div className="rounded-full border border-stone-200 bg-stone-50 px-4 py-2 text-sm text-stone-600">
                     Awaiting first render
                   </div>
                 )}
@@ -732,42 +526,24 @@ export default function ThreeDRenderToolPage() {
             </div>
 
             <div className="mt-8 space-y-6">
-              <ThreeDViewer file={selectedFile} materialKey={activeMaterial} />
+              <ThreeDViewer file={selectedFile} materialKey={materialPreset} />
 
-              <div className="flex flex-wrap gap-3">
-                {RENDER_MATERIAL_KEYS.map((materialKey) => (
-                  <button
-                    key={materialKey}
-                    type="button"
-                    onClick={() => setActiveMaterial(materialKey)}
-                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-300 ${
-                      activeMaterial === materialKey
-                        ? "border-cyan-300/40 bg-cyan-400/15 text-cyan-50"
-                        : "border-white/10 bg-slate-950/45 text-slate-300 hover:border-white/20 hover:bg-white/10"
-                    }`}
-                  >
-                    {MATERIAL_META[materialKey].label}
-                  </button>
-                ))}
-              </div>
-
-              {!result || !activeMaterialGroup ? (
-                <div className="rounded-[1.75rem] border border-dashed border-white/15 bg-slate-950/40 px-6 py-16 text-center">
-                  <h3 className="font-[var(--font-heading)] text-2xl font-semibold text-white">
-                    Generated renders will land here.
+              {!result ? (
+                <div className="rounded-[1.75rem] border border-dashed border-stone-300 bg-stone-50 px-6 py-16 text-center">
+                  <h3 className="font-[var(--font-heading)] text-2xl font-semibold text-stone-950">
+                    Rendered previews will appear here.
                   </h3>
-                  <p className="mt-3 mx-auto max-w-xl text-sm leading-7 text-slate-400">
-                    Once the image API finishes, you will see the optimized
-                    camera set for the active material tab right away. The MP4
-                    preview can finish afterward without blocking the gallery.
+                  <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-stone-600">
+                    Once the render finishes you will see the four required PNG
+                    views, the optional thumbnail, and the encoded 360-degree MP4.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-6">
-                  <div className="grid gap-4 xl:grid-cols-[0.76fr_1.24fr]">
-                    <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/45 p-5">
-                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                        Model Stats
+                  <div className="grid gap-4 xl:grid-cols-[0.74fr_1.26fr]">
+                    <div className="rounded-[1.75rem] border border-stone-200 bg-stone-50 p-5">
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                        Render Stats
                       </div>
                       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                         <StatCard label="Meshes" value={`${result.stats.meshCount}`} />
@@ -779,141 +555,149 @@ export default function ThreeDRenderToolPage() {
                           label="Vertices"
                           value={result.stats.vertexCount.toLocaleString()}
                         />
+                        <StatCard label="Bounds" value={formatTriplet(result)} />
                         <StatCard
-                          label="Bounds"
-                          value={formatDimensionTriplet(result)}
+                          label="Renderer"
+                          value={result.stats.backend}
+                        />
+                        <StatCard
+                          label="GPU"
+                          value={result.stats.gpuEnabled ? "Enabled" : "CPU"}
                         />
                       </div>
                     </div>
 
-                    <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/45 p-5">
+                    <div className="rounded-[1.75rem] border border-stone-200 bg-stone-50 p-5">
                       <div className="flex items-center justify-between gap-4">
                         <div>
-                          <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                            {activeMaterialGroup.label} Render Set
+                          <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                            Static Render Set
                           </div>
-                          <div className="mt-2 text-sm text-slate-300">
-                            {activeMaterialGroup.description}
+                          <div className="mt-2 text-sm text-stone-600">
+                            Output folder: {result.outputDirectory}
                           </div>
                         </div>
-                        <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.26em] text-cyan-100">
-                          {activeMaterialGroup.images.length} views
+                        <div className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.26em] text-stone-700">
+                          4 views
                         </div>
                       </div>
 
                       <div className="mt-5 grid gap-4 md:grid-cols-2">
-                        {activeMaterialGroup.images.map((image) => (
-                          <article
-                            key={image.id}
-                            className="group overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#060d19] transition duration-300 hover:-translate-y-1 hover:border-cyan-300/30"
-                          >
-                            <div className="aspect-square overflow-hidden border-b border-white/10">
-                              <Image
-                                src={image.src}
-                                alt={`${activeMaterialGroup.label} ${CAMERA_META[image.angle].label}`}
-                                width={image.width}
-                                height={image.height}
-                                unoptimized
-                                className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                              />
-                            </div>
-                            <div className="space-y-3 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="font-semibold text-white">
-                                    {CAMERA_META[image.angle].label}
-                                  </div>
-                                  <div className="mt-1 text-xs uppercase tracking-[0.24em] text-slate-400">
-                                    {image.width} x {image.height}
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    downloadAsset(image.filename, image.src)
-                                  }
-                                  className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition duration-300 hover:border-cyan-300/30 hover:bg-cyan-400/10"
-                                >
-                                  PNG
-                                </button>
+                        {STL_VIEW_KEYS.map((view) => {
+                          const image = result.images[view];
+
+                          return (
+                            <article
+                              key={view}
+                              className="group overflow-hidden rounded-[1.5rem] border border-stone-200 bg-white transition duration-300 hover:-translate-y-1 hover:border-stone-400"
+                            >
+                              <div className="aspect-square overflow-hidden border-b border-stone-200">
+                                <Image
+                                  src={image.src}
+                                  alt={STL_VIEW_META[view].label}
+                                  width={image.width}
+                                  height={image.height}
+                                  unoptimized
+                                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                                />
                               </div>
-                              <p className="text-sm leading-6 text-slate-400">
-                                {CAMERA_META[image.angle].description}
-                              </p>
-                            </div>
-                          </article>
-                        ))}
+                              <div className="space-y-3 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="font-semibold text-stone-950">
+                                      {STL_VIEW_META[view].label}
+                                    </div>
+                                    <div className="mt-1 text-xs uppercase tracking-[0.24em] text-stone-500">
+                                      {image.width} x {image.height}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      downloadAsset(image.filename, image.src)
+                                    }
+                                    className="rounded-full border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-800 transition duration-300 hover:border-stone-500 hover:bg-stone-100"
+                                  >
+                                    PNG
+                                  </button>
+                                </div>
+                                <p className="text-sm leading-6 text-stone-600">
+                                  {STL_VIEW_META[view].description}
+                                </p>
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/45 p-5">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                          360-Degree Video Preview
+                  {result.thumbnail ? (
+                    <div className="rounded-[1.75rem] border border-stone-200 bg-stone-50 p-5">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                            Thumbnail
+                          </div>
+                          <h3 className="mt-2 font-[var(--font-heading)] text-2xl font-semibold text-stone-950">
+                            Square marketplace thumbnail
+                          </h3>
                         </div>
-                        <h3 className="mt-2 font-[var(--font-heading)] text-2xl font-semibold text-white">
-                          {previewVideo
-                            ? `Rotating MP4 encoded from ${previewVideo.frameCount} frames`
-                            : "Background video generation"}
-                        </h3>
-                        <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                          {previewVideo
-                            ? `The preview video uses the neutral ${MATERIAL_META[previewVideo.material].label.toLowerCase()} material so shape and silhouette stay readable across the full orbit.`
-                            : "PNG renders are already ready. The MP4 preview now runs independently so the UI can stay responsive."}
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadAsset(
+                              result.thumbnail!.filename,
+                              result.thumbnail!.src
+                            )
+                          }
+                          className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition duration-300 hover:border-stone-500"
+                        >
+                          Download Thumbnail
+                        </button>
                       </div>
-                      {previewVideo ? (
-                        <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-200">
-                          {previewVideo.width} x {previewVideo.height}
-                        </div>
-                      ) : null}
-                    </div>
 
-                    {previewVideo ? (
-                      <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black">
-                        <video
-                          src={previewVideo.src}
-                          controls
-                          loop
-                          playsInline
-                          className="aspect-square w-full"
+                      <div className="mt-5 max-w-[18rem] overflow-hidden rounded-[1.5rem] border border-stone-200 bg-white">
+                        <Image
+                          src={result.thumbnail.src}
+                          alt="Marketplace thumbnail"
+                          width={result.thumbnail.width}
+                          height={result.thumbnail.height}
+                          unoptimized
+                          className="h-full w-full object-cover"
                         />
                       </div>
-                    ) : isGeneratingVideo ? (
-                      <div className="mt-5 rounded-[1.5rem] border border-cyan-300/20 bg-cyan-400/10 px-5 py-8 text-center text-cyan-50">
-                        Generating video...
-                      </div>
-                    ) : videoError ? (
-                      <div className="mt-5 rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 p-5">
-                        <div className="text-sm text-rose-100">{videoError}</div>
-                        <button
-                          type="button"
-                          onClick={handleVideoRetry}
-                          className="mt-4 inline-flex items-center justify-center rounded-full border border-rose-200/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition duration-300 hover:bg-white/15"
-                        >
-                          Retry Video
-                        </button>
-                      </div>
-                    ) : didSkipVideo ? (
-                      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-5">
-                        <div className="text-sm text-slate-300">
-                          Video generation is currently skipped for this render.
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-[1.75rem] border border-stone-200 bg-stone-50 p-5">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                          360 Degree Video Preview
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleVideoRetry}
-                          className="mt-4 inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition duration-300 hover:bg-cyan-400/15"
-                        >
-                          Generate Video Now
-                        </button>
+                        <h3 className="mt-2 font-[var(--font-heading)] text-2xl font-semibold text-stone-950">
+                          MP4 encoded from {result.video.frameCount} frames
+                        </h3>
+                        <p className="mt-2 max-w-2xl text-sm leading-7 text-stone-600">
+                          The model spins through a full Y-axis rotation and is
+                          exported as H.264 at {result.video.width} x {result.video.height}.
+                        </p>
                       </div>
-                    ) : (
-                      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 px-5 py-8 text-center text-slate-300">
-                        Video is not available yet.
+                      <div className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700">
+                        {result.video.codec.toUpperCase()}
                       </div>
-                    )}
+                    </div>
+
+                    <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-stone-200 bg-black">
+                      <video
+                        src={result.video.src}
+                        controls
+                        loop
+                        playsInline
+                        className="aspect-square w-full"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
