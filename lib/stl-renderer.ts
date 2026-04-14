@@ -106,6 +106,7 @@ const PRIVATE_RENDER_ROOT = path.join(process.cwd(), ".render-cache", "stl-rende
 const RENDER_MANIFEST_FILENAME = "manifest.json";
 const DEFAULT_CAMERA_UP = new Vector3(0, 1, 0);
 const FRAME_BATCH_SIZE = 12;
+const SINGLE_VIEW_RENDER_TIMEOUT_MS = 10_000;
 
 let svgDomQueue = Promise.resolve();
 let resolvedFfmpegBinaryPromise: Promise<string> | null = null;
@@ -391,7 +392,7 @@ function applyMaterial(subject: Object3D, materialPreset: StlMaterialPreset) {
     }
 
     const mesh = node as Mesh;
-    mesh.material = material;
+    mesh.material = material.clone();
     mesh.castShadow = false;
     mesh.receiveShadow = false;
   });
@@ -578,6 +579,233 @@ function buildNeutralSvg(markup: string, size: number, background: string) {
   `;
 }
 
+function disposeObjectResources(root: Object3D) {
+  root.traverse((node) => {
+    if (!("isMesh" in node) || !node.isMesh) {
+      return;
+    }
+
+    const mesh = node as Mesh;
+    mesh.geometry.dispose();
+
+    const materials = Array.isArray(mesh.material)
+      ? mesh.material
+      : [mesh.material];
+
+    for (const material of materials) {
+      material.dispose();
+    }
+  });
+}
+
+async function withOperationTimeout<T>(
+  operationName: string,
+  timeoutMs: number,
+  logger: RenderLogger,
+  signal: AbortSignal | undefined,
+  task: () => Promise<T>
+) {
+  throwIfAborted(signal);
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      logger.log("operation-timeout", {
+        operationName,
+        timeoutMs
+      });
+      settleReject(
+        new StlRenderPipelineError(
+          `${operationName} timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
+          504
+        )
+      );
+    }, timeoutMs);
+
+    const abortListener = () => {
+      settleReject(new StlRenderPipelineError("The render was aborted.", 504));
+    };
+
+    function cleanup() {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortListener);
+    }
+
+    function settleResolve(value: T) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+
+    function settleReject(error: unknown) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    if (signal?.aborted) {
+      settleReject(new StlRenderPipelineError("The render was aborted.", 504));
+      return;
+    }
+
+    signal?.addEventListener("abort", abortListener, { once: true });
+    void task().then(settleResolve, settleReject);
+  });
+}
+
+async function renderSingleView(
+  snapshot: NormalizedModelSnapshot,
+  frame: StillRenderFrame,
+  renderId: string,
+  publicDirectory: string,
+  materialPreset: StlMaterialPreset,
+  background: StlBackgroundPreset,
+  size: number,
+  logger: RenderLogger,
+  signal?: AbortSignal
+) {
+  const outputPath = path.join(publicDirectory, frame.filename);
+
+  logger.log("render-single-view:start", {
+    view: frame.key,
+    outputPath,
+    message: `Rendering view: ${frame.key}`
+  });
+
+  const pngBuffer = await withOperationTimeout(
+    `render-single-view:${frame.key}`,
+    SINGLE_VIEW_RENDER_TIMEOUT_MS,
+    logger,
+    signal,
+    async () =>
+      runWithSvgDom(async () => {
+        return await new Promise<Buffer>((resolve, reject) => {
+          let subject: Object3D | null = null;
+          let scene: Scene | null = null;
+          let camera: PerspectiveCamera | null = null;
+          let renderer: SVGRenderer | null = null;
+
+          function cleanup() {
+            if (scene && subject) {
+              scene.remove(subject);
+            }
+
+            if (
+              renderer &&
+              "dispose" in renderer &&
+              typeof renderer.dispose === "function"
+            ) {
+              renderer.dispose();
+            }
+
+            if (subject) {
+              disposeObjectResources(subject);
+            }
+
+            scene?.clear();
+            subject = null;
+            scene = null;
+            camera = null;
+            renderer = null;
+          }
+
+          try {
+            throwIfAborted(signal);
+            subject = applyMaterial(snapshot.object.clone(true), materialPreset);
+            scene = createStudioScene(subject, background);
+            camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
+            renderer = new SVGRenderer();
+
+            renderer.setQuality("high");
+            renderer.setSize(size, size);
+            renderer.setClearColor(
+              new Color(STL_BACKGROUND_META[background].color),
+              1
+            );
+
+            subject.rotation.set(0, 0, 0);
+            subject.updateMatrixWorld(true);
+
+            camera.position.copy(frame.cameraPosition);
+            camera.up.copy(frame.cameraUp ?? DEFAULT_CAMERA_UP);
+            camera.lookAt(0, 0, 0);
+            camera.updateProjectionMatrix();
+            camera.updateMatrixWorld(true);
+            scene.updateMatrixWorld(true);
+
+            logger.debug("render-single-view:before-render", {
+              view: frame.key,
+              cameraPosition: camera.position.toArray(),
+              cameraUp: camera.up.toArray()
+            });
+
+            renderer.render(scene, camera);
+
+            logger.debug("render-single-view:after-render", {
+              view: frame.key,
+              svgLength: renderer.domElement.innerHTML.length
+            });
+
+            const svg = buildNeutralSvg(
+              renderer.domElement.innerHTML,
+              size,
+              STL_BACKGROUND_META[background].color
+            );
+
+            void sharp(Buffer.from(svg))
+              .png({ compressionLevel: 9 })
+              .toBuffer()
+              .then(
+                (buffer) => {
+                  logger.log("render-single-view:complete", {
+                    view: frame.key,
+                    bytes: buffer.byteLength,
+                    message: "Render complete"
+                  });
+                  cleanup();
+                  resolve(buffer);
+                },
+                (error) => {
+                  cleanup();
+                  reject(error);
+                }
+              );
+          } catch (error) {
+            cleanup();
+            reject(error);
+          }
+        });
+      })
+  );
+
+  await writeBufferToFile(outputPath, pngBuffer, logger, `image-${frame.key}`, signal);
+  logger.log("render-single-view:file-saved", {
+    view: frame.key,
+    outputPath,
+    bytes: pngBuffer.byteLength,
+    message: "File saved"
+  });
+
+  return {
+    key: frame.key,
+    label: frame.label,
+    filename: frame.filename,
+    src: toPublicAssetPath(renderId, frame.filename),
+    outputPath,
+    width: size,
+    height: size,
+    mimeType: "image/png"
+  } satisfies StlRenderImageAsset;
+}
+
 async function renderFrames(
   snapshot: NormalizedModelSnapshot,
   materialPreset: StlMaterialPreset,
@@ -609,42 +837,54 @@ async function renderFrames(
 
     const buffers: Buffer[] = [];
 
-    for (const [index, frame] of frames.entries()) {
-      throwIfAborted(signal);
-      subject.rotation.set(0, frame.rotationY ?? 0, 0);
-      subject.updateMatrixWorld(true);
+    try {
+      for (const [index, frame] of frames.entries()) {
+        throwIfAborted(signal);
+        subject.rotation.set(0, frame.rotationY ?? 0, 0);
+        subject.updateMatrixWorld(true);
 
-      camera.position.copy(frame.cameraPosition);
-      camera.up.copy(frame.cameraUp ?? DEFAULT_CAMERA_UP);
-      camera.lookAt(0, 0, 0);
-      camera.updateProjectionMatrix();
-      camera.updateMatrixWorld(true);
+        camera.position.copy(frame.cameraPosition);
+        camera.up.copy(frame.cameraUp ?? DEFAULT_CAMERA_UP);
+        camera.lookAt(0, 0, 0);
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        scene.updateMatrixWorld(true);
 
-      renderer.render(scene, camera);
+        renderer.render(scene, camera);
 
-      const svg = buildNeutralSvg(
-        renderer.domElement.innerHTML,
-        size,
-        STL_BACKGROUND_META[background].color
-      );
-      const pngBuffer = await sharp(Buffer.from(svg))
-        .png({ compressionLevel: 9 })
-        .toBuffer();
+        const svg = buildNeutralSvg(
+          renderer.domElement.innerHTML,
+          size,
+          STL_BACKGROUND_META[background].color
+        );
+        const pngBuffer = await sharp(Buffer.from(svg))
+          .png({ compressionLevel: 9 })
+          .toBuffer();
 
-      buffers.push(pngBuffer);
+        buffers.push(pngBuffer);
 
-      logger.debug("render-frames:frame-complete", {
-        frameIndex: index,
-        bytes: pngBuffer.byteLength
+        logger.debug("render-frames:frame-complete", {
+          frameIndex: index,
+          bytes: pngBuffer.byteLength
+        });
+      }
+
+      logger.log("render-frames:complete", {
+        frameCount: buffers.length,
+        size
       });
+
+      return buffers;
+    } finally {
+      scene.remove(subject);
+
+      if ("dispose" in renderer && typeof renderer.dispose === "function") {
+        renderer.dispose();
+      }
+
+      disposeObjectResources(subject);
+      scene.clear();
     }
-
-    logger.log("render-frames:complete", {
-      frameCount: buffers.length,
-      size
-    });
-
-    return buffers;
   });
 }
 
@@ -838,7 +1078,7 @@ async function runFfmpeg(
   });
 }
 
-async function buildStillAssets(
+async function renderImages(
   snapshot: NormalizedModelSnapshot,
   renderId: string,
   publicDirectory: string,
@@ -866,46 +1106,23 @@ async function buildStillAssets(
     };
   });
 
-  const buffers = await renderFrames(
-    snapshot,
-    materialPreset,
-    background,
-    STILL_OUTPUT_SIZE,
-    logger,
-    signal,
-    frames.map((frame) => ({
-      cameraPosition: frame.cameraPosition,
-      cameraUp: frame.cameraUp
-    }))
-  );
+  const imageEntries: Array<readonly [StlRenderViewKey, StlRenderImageAsset]> = [];
 
-  const imageEntries = await Promise.all(
-    frames.map(async (frame, index) => {
-      const outputPath = path.join(publicDirectory, frame.filename);
-      const buffer = buffers[index];
-
-      await writeBufferToFile(
-        outputPath,
-        buffer,
-        logger,
-        `image-${frame.key}`,
-        signal
-      );
-
-      const asset: StlRenderImageAsset = {
-        key: frame.key,
-        label: frame.label,
-        filename: frame.filename,
-        src: toPublicAssetPath(renderId, frame.filename),
-        outputPath,
-        width: STILL_OUTPUT_SIZE,
-        height: STILL_OUTPUT_SIZE,
-        mimeType: "image/png"
-      };
-
-      return [frame.key, asset] as const;
-    })
-  );
+  for (const frame of frames) {
+    throwIfAborted(signal);
+    const asset = await renderSingleView(
+      snapshot,
+      frame,
+      renderId,
+      publicDirectory,
+      materialPreset,
+      background,
+      STILL_OUTPUT_SIZE,
+      logger,
+      signal
+    );
+    imageEntries.push([frame.key, asset] as const);
+  }
 
   logger.log("images-render:complete", {
     imageCount: imageEntries.length
@@ -1299,7 +1516,7 @@ async function executeRender(
   let images: Record<StlRenderViewKey, StlRenderImageAsset>;
 
   try {
-    images = await buildStillAssets(
+    images = await renderImages(
       snapshot,
       renderId,
       publicDirectory,
