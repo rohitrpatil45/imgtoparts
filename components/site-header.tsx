@@ -48,10 +48,16 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-3">
           <Link
-            href="/sign-in"
+            href="/login"
             className="hidden rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition duration-300 hover:border-white/20 hover:bg-white/10 sm:inline-flex"
           >
-            Sign In
+            Log In
+          </Link>
+          <Link
+            href="/signup"
+            className="hidden rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm font-semibold text-cyan-50 transition duration-300 hover:border-cyan-300/30 hover:bg-cyan-300/15 lg:inline-flex"
+          >
+            Sign Up
           </Link>
           <Link
             href="/tool"
