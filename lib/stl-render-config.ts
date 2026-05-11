@@ -4,7 +4,7 @@ import type {
   StlRenderViewKey
 } from "@/lib/types";
 
-export const MAX_STL_FILE_SIZE = 50 * 1024 * 1024;
+export const MAX_STL_FILE_SIZE = 60 * 1024 * 1024;
 export const STL_RENDER_TIMEOUT_MS = 120_000;
 export const STILL_OUTPUT_SIZE = 720;
 export const VIDEO_OUTPUT_SIZE = 720;

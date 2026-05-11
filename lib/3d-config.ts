@@ -4,7 +4,7 @@ import type {
   RenderMaterialKey
 } from "@/lib/types";
 
-export const MAX_3D_FILE_SIZE = 20 * 1024 * 1024;
+export const MAX_3D_FILE_SIZE = 60 * 1024 * 1024;
 export const OUTPUT_IMAGE_SIZE = 1024;
 export const OUTPUT_VIDEO_SIZE = 1024;
 export const VIDEO_FRAME_COUNT = 24;
