@@ -5,10 +5,10 @@ import type {
 } from "@/lib/types";
 
 export const MAX_STL_FILE_SIZE = 60 * 1024 * 1024;
-export const STL_RENDER_TIMEOUT_MS = 120_000;
-export const STILL_OUTPUT_SIZE = 720;
-export const VIDEO_OUTPUT_SIZE = 720;
-export const VIDEO_FRAME_COUNT = 60;
+export const STL_RENDER_TIMEOUT_MS = 240_000;
+export const STILL_OUTPUT_SIZE = 1280;
+export const VIDEO_OUTPUT_SIZE = 1280;
+export const VIDEO_FRAME_COUNT = 90;
 export const VIDEO_FRAME_RATE = 30;
 export const CAMERA_FOV = 34;
 export const DEFAULT_BACKGROUND: StlBackgroundPreset = "dark";

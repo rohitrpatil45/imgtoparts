@@ -12,7 +12,9 @@ import {
   STL_MATERIAL_PRESET_KEYS,
   STL_MATERIAL_PRESET_META,
   STL_VIEW_KEYS,
-  STL_VIEW_META
+  STL_VIEW_META,
+  STILL_OUTPUT_SIZE,
+  VIDEO_FRAME_COUNT
 } from "@/lib/stl-render-config";
 import {
   downloadAsset,
@@ -219,7 +221,7 @@ export default function ThreeDRenderToolPage() {
                 STL Preview Pipeline
               </p>
               <h1 className="mt-5 font-[var(--font-heading)] text-4xl font-semibold text-stone-950 sm:text-5xl">
-                Turn one STL upload into a clean four-view image set and a 360 MP4.
+                Turn one STL upload into a clean four-view image set and a sharper 360 MP4.
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-8 text-stone-700 sm:text-base">
                 This server-side pipeline validates the mesh, centers it at the
@@ -350,9 +352,9 @@ export default function ThreeDRenderToolPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
-                <StatCard label="Still Outputs" value="4 PNGs" />
-                <StatCard label="Video Output" value="1 MP4" />
-                <StatCard label="Frames" value="120" />
+                <StatCard label="Still Outputs" value={`4 PNGs • ${STILL_OUTPUT_SIZE}px`} />
+                <StatCard label="Video Output" value={`1 MP4 • ${STILL_OUTPUT_SIZE}px`} />
+                <StatCard label="Frames" value={`${VIDEO_FRAME_COUNT}`} />
               </div>
 
               <div className="grid gap-4">

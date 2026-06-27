@@ -1098,7 +1098,6 @@ export async function generate3DPreviewVideo(
 ): Promise<Rendered3DVideo> {
   const logger = createPipelineLogger("video-source-load", {
     renderId
-    console.log("rohit patil 111.")
   });
   const { manifest, buffer } = await logger.measure("load-stored-source", async () =>
     loadStoredRenderSource(renderId)

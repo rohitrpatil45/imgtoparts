@@ -106,7 +106,7 @@ const PRIVATE_RENDER_ROOT = path.join(process.cwd(), ".render-cache", "stl-rende
 const RENDER_MANIFEST_FILENAME = "manifest.json";
 const DEFAULT_CAMERA_UP = new Vector3(0, 1, 0);
 const FRAME_BATCH_SIZE = 12;
-const SINGLE_VIEW_RENDER_TIMEOUT_MS = 10_000;
+const SINGLE_VIEW_RENDER_TIMEOUT_MS = 20_000;
 
 let svgDomQueue = Promise.resolve();
 let resolvedFfmpegBinaryPromise: Promise<string> | null = null;
@@ -761,7 +761,7 @@ async function renderSingleView(
             );
 
             void sharp(Buffer.from(svg))
-              .png({ compressionLevel: 9 })
+              .png({ compressionLevel: 9, adaptiveFiltering: true })
               .toBuffer()
               .then(
                 (buffer) => {
@@ -858,7 +858,7 @@ async function renderFrames(
           STL_BACKGROUND_META[background].color
         );
         const pngBuffer = await sharp(Buffer.from(svg))
-          .png({ compressionLevel: 9 })
+          .png({ compressionLevel: 9, adaptiveFiltering: true })
           .toBuffer();
 
         buffers.push(pngBuffer);
@@ -1149,11 +1149,18 @@ async function buildThumbnailAsset(
   });
 
   await sharp(sourceImagePath)
-    .resize(512, 512, {
+    .resize(1024, 1024, {
       fit: "cover",
       position: "centre"
     })
-    .png({ compressionLevel: 9 })
+    .extend({
+      top: 32,
+      bottom: 32,
+      left: 32,
+      right: 32,
+      background: { r: 255, g: 255, b: 255, alpha: 1 }
+    })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
     .toFile(outputPath);
 
   logger.log("thumbnail-generation:complete", {
@@ -1166,8 +1173,8 @@ async function buildThumbnailAsset(
     filename: THUMBNAIL_FILENAME,
     src: toPublicAssetPath(renderId, THUMBNAIL_FILENAME),
     outputPath,
-    width: 512,
-    height: 512,
+    width: 1024,
+    height: 1024,
     mimeType: "image/png"
   } satisfies StlRenderImageAsset;
 }
@@ -1276,11 +1283,17 @@ async function buildVideoAsset(
         "-i",
         path.join(framesDirectory, "frame-%04d.png"),
         "-vf",
-        `scale=${VIDEO_OUTPUT_SIZE}:${VIDEO_OUTPUT_SIZE}`,
+        `scale=${VIDEO_OUTPUT_SIZE}:${VIDEO_OUTPUT_SIZE}:flags=lanczos,format=yuv420p`,
         "-c:v",
         "libx264",
         "-preset",
-        "ultrafast",
+        "slow",
+        "-crf",
+        "20",
+        "-profile:v",
+        "high",
+        "-level",
+        "4.0",
         "-pix_fmt",
         "yuv420p",
         "-movflags",
