@@ -1,8 +1,9 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Canvas } from "@react-three/fiber";
 import { Environment, OrbitControls, Stage } from "@react-three/drei";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Box3,
   BufferGeometry,
@@ -22,6 +23,8 @@ type ThreeDViewerProps = {
   file: File | null;
   materialKey: RenderMaterialKey;
 };
+
+type ViewMode = "rotate" | "pan" | "zoom";
 
 function createPreviewMaterial(materialKey: RenderMaterialKey) {
   const spec = MATERIAL_META[materialKey];
@@ -92,10 +95,13 @@ async function parseUploadedModel(file: File) {
 }
 
 export function ThreeDViewer({ file, materialKey }: ThreeDViewerProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const controlsRef = useRef<any>(null);
   const [sourceModel, setSourceModel] = useState<Object3D | null>(null);
   const [displayModel, setDisplayModel] = useState<Object3D | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("rotate");
 
   useEffect(() => {
     let isCancelled = false;
@@ -163,26 +169,81 @@ export function ThreeDViewer({ file, materialKey }: ThreeDViewerProps) {
     }
   }, [materialKey, sourceModel]);
 
+  function resetCamera() {
+    controlsRef.current?.reset?.();
+  }
+
+  function toggleFullscreen() {
+    if (!containerRef.current) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    void containerRef.current.requestFullscreen();
+  }
+
   return (
-    <div className="relative h-[26rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#07101f]">
+    <div ref={containerRef} className="relative h-[32rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#020617] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(circle at top right, rgba(56,189,248,0.16), transparent 26%), radial-gradient(circle at 16% 22%, rgba(96,165,250,0.14), transparent 22%), linear-gradient(180deg, rgba(7,16,31,0.75) 0%, rgba(5,10,19,0.92) 100%)"
+            "radial-gradient(circle at top right, rgba(34,211,238,0.16), transparent 28%), radial-gradient(circle at 16% 20%, rgba(59,130,246,0.14), transparent 22%), linear-gradient(180deg, rgba(2,6,23,0.8) 0%, rgba(2,8,23,0.95) 100%)"
         }}
       />
 
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/70 p-1.5 backdrop-blur">
+        {[
+          { key: "rotate", label: "Rotate", icon: "↺" },
+          { key: "pan", label: "Pan", icon: "✥" },
+          { key: "zoom", label: "Zoom", icon: "+" }
+        ].map((tool) => (
+          <button
+            key={tool.key}
+            type="button"
+            onClick={() => setViewMode(tool.key as ViewMode)}
+            className={`rounded-full px-3 py-2 text-sm font-medium transition ${
+              viewMode === tool.key
+                ? "bg-cyan-400/15 text-cyan-200"
+                : "text-slate-300 hover:bg-white/10"
+            }`}
+          >
+            {tool.icon}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={resetCamera}
+          className="rounded-full px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10"
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="rounded-full px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10"
+        >
+          Fullscreen
+        </button>
+      </div>
+
       {displayModel ? (
         <Canvas camera={{ position: [3.2, 2.6, 3.2], fov: 34 }}>
-          <color attach="background" args={["#07101f"]} />
-          <fog attach="fog" args={["#07101f", 7, 13]} />
+          <color attach="background" args={["#020617"]} />
+          <fog attach="fog" args={["#020617", 7, 13]} />
           <Stage adjustCamera={1.45} intensity={0.72} environment={null} shadows={false}>
             <primitive object={displayModel} />
           </Stage>
           <Environment preset="city" />
           <OrbitControls
-            enablePan={false}
+            ref={controlsRef}
+            enableRotate={viewMode === "rotate"}
+            enablePan={viewMode === "pan"}
+            enableZoom={viewMode === "zoom"}
             maxDistance={7}
             minDistance={2.2}
             autoRotate={false}
@@ -207,31 +268,41 @@ export function ThreeDViewer({ file, materialKey }: ThreeDViewerProps) {
                 />
               </svg>
             </div>
-            <h3 className="mt-5 font-[var(--font-heading)] text-2xl font-semibold text-white">
+            <h3 className="mt-5 text-2xl font-medium text-white">
               Live 3D preview
             </h3>
             <p className="mt-3 text-sm leading-7 text-slate-400">
-              Drop an STL or OBJ file to inspect it with orbit controls before
-              generating the production render set.
+              Upload an STL or OBJ file to inspect it before generating the export pack.
             </p>
           </div>
         </div>
       )}
 
       {isLoading ? (
-        <div className="absolute inset-x-5 top-5 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100">
-          Parsing geometry for the live preview...
-        </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-x-5 top-5 rounded-[1rem] border border-cyan-400/20 bg-slate-950/70 p-4 backdrop-blur"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400" />
+            <div className="h-2 w-24 animate-pulse rounded-full bg-cyan-400/20" />
+          </div>
+          <div className="mt-3 grid gap-2">
+            <div className="h-2 w-full animate-pulse rounded-full bg-white/10" />
+            <div className="h-2 w-4/5 animate-pulse rounded-full bg-white/10" />
+          </div>
+        </motion.div>
       ) : null}
 
       {error ? (
-        <div className="absolute inset-x-5 bottom-5 rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+        <div className="absolute inset-x-5 bottom-5 rounded-[1rem] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
           {error}
         </div>
       ) : null}
 
       {file ? (
-        <div className="absolute left-5 top-5 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-slate-200">
+        <div className="absolute left-4 top-4 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-slate-200">
           {file.name.split(".").pop()?.toUpperCase() ?? "3D"}
         </div>
       ) : null}
