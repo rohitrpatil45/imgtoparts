@@ -364,172 +364,907 @@ geometry.computeBoundingSphere();
   };
 
   // ============ RENDER UI ============
-  return (
-    <div style={{ 
-      padding: '20px', 
-      maxWidth: '1000px', 
-      margin: '0 auto',
-      fontFamily: 'Arial, sans-serif'
-    }}>
-      <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>
-        STL to 360° Video Converter
-      </h1>
-      
-      {/* Controls */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '10px', 
-        justifyContent: 'center',
-        marginBottom: '20px',
-        flexWrap: 'wrap'
-      }}>
-        <input
-          type="file"
-          accept=".stl,.STL"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFile(file);
-          }}
-          style={{
-            padding: '10px',
-            border: '1px solid #ccc',
-            borderRadius: '5px',
-            cursor: 'pointer'
-          }}
-        />
-        
-        <button
-          onClick={generateVideo}
-          disabled={status !== 'ready' && status !== 'complete'}
-          style={{
-            padding: '10px 20px',
-            fontSize: '16px',
-            cursor: status === 'ready' ? 'pointer' : 'not-allowed',
-            backgroundColor: status === 'ready' ? '#28a745' : '#6c757d',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            opacity: status === 'ready' ? 1 : 0.5
-          }}
-        >
-          Generate 360° Video
-        </button>
-      </div>
-      
-      {/* Status */}
-      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-        <p style={{ 
-          fontSize: '18px', 
-          fontWeight: 'bold',
-          margin: '0 0 10px 0'
-        }}>
-          Status: {status.toUpperCase()}
-        </p>
-        
-        {status === 'parsing' || status === 'rendering' ? (
-          <div style={{
-            width: '100%',
-            height: '20px',
-            backgroundColor: '#e0e0e0',
-            borderRadius: '10px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              width: `${progress}%`,
-              height: '100%',
-              backgroundColor: '#007bff',
-              transition: 'width 0.3s',
+return (
+  <main
+    style={{
+      minHeight: '100vh',
+      background:
+        'linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f8fafc 100%)',
+      color: '#0f172a',
+      fontFamily:
+        'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      padding: '32px 20px',
+    }}
+  >
+    <div
+      style={{
+        maxWidth: '1400px',
+        margin: '0 auto',
+      }}
+    >
+      {/* ================= HEADER ================= */}
+
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '20px',
+          marginBottom: '32px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <div
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: '12px'
-            }}>
-              {Math.round(progress)}%
+              gap: '12px',
+              marginBottom: '8px',
+            }}
+          >
+          
+           
+
+            <div>
+             
+
+              <h2
+                style={{
+                  margin: '2px 0 0',
+                  color: '#e7dc40',
+                  fontSize: '19px',
+                  fontWeight: 700,
+                  stroke: '1px #000',
+                  strokeWidth: '1px',
+                }}
+              >
+                Turn your 3D models into smooth 360° videos
+              </h2>
             </div>
           </div>
-        ) : null}
-      </div>
-      
-      {/* Canvas */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center',
-        marginBottom: '20px'
-      }}>
-        <canvas
-          ref={canvasRef}
-          width={800}
-          height={600}
+        </div>
+
+
+
+        
+
+        {/* STATUS BADGE */}
+
+        <div
           style={{
-            border: '2px solid #ccc',
-            borderRadius: '5px',
-            backgroundColor: '#f0f0f0',
-            maxWidth: '100%'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 14px',
+            background: 'white',
+            border: '1px solid #e2e8f0',
+            borderRadius: '999px',
+            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)',
+            fontSize: '14px',
+            fontWeight: 600,
           }}
-        />
+        >
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor:
+                status === 'ready'
+                  ? '#22c55e'
+                  : status === 'error'
+                  ? '#ef4444'
+                  : status === 'rendering' || status === 'parsing'
+                  ? '#f59e0b'
+                  : '#94a3b8',
+              boxShadow:
+                status === 'ready'
+                  ? '0 0 0 4px rgba(34, 197, 94, 0.12)'
+                  : 'none',
+            }}
+          />
+
+          {status === 'ready'
+            ? 'Ready'
+            : status === 'parsing'
+            ? 'Processing Model'
+            : status === 'rendering'
+            ? 'Generating Video'
+            : status === 'complete'
+            ? 'Completed'
+            : status === 'error'
+            ? 'Error'
+            : 'Waiting for Model'}
+        </div>
+      </header>
+
+
+
+   <div
+            style={{
+              marginTop: '18px',
+              marginBottom: '18px',
+
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              padding: '14px',
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '16px',
+              boxShadow:
+                '0 8px 24px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            {/* UPLOAD */}
+
+            <label
+              style={{
+                padding: '11px 16px',
+                border: '1px solid #cbd5e1',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#334155',
+                background: '#f8fafc',
+              }}
+            >
+              ↑ Upload Model
+
+              <input
+                type="file"
+                accept=".stl,.STL,.obj,.OBJ"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+
+                  if (file) {
+                    handleFile(file);
+                  }
+                }}
+                style={{
+                  display: 'none',
+                }}
+              />
+            </label>
+
+            {/* GENERATE */}
+
+            <button
+              onClick={generateVideo}
+              disabled={
+                status !== 'ready' &&
+                status !== 'complete'
+              }
+              style={{
+                padding: '12px 22px',
+                border: 'none',
+                borderRadius: '10px',
+                cursor:
+                  status === 'ready' ||
+                  status === 'complete'
+                    ? 'pointer'
+                    : 'not-allowed',
+                background:
+                  status === 'ready' ||
+                  status === 'complete'
+                    ? 'linear-gradient(135deg, #2563eb, #7c3aed)'
+                    : '#cbd5e1',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 700,
+                boxShadow:
+                  status === 'ready' ||
+                  status === 'complete'
+                    ? '0 8px 20px rgba(37, 99, 235, 0.25)'
+                    : 'none',
+                opacity:
+                  status === 'ready' ||
+                  status === 'complete'
+                    ? 1
+                    : 0.7,
+              }}
+            >
+              ▶ Generate 360° Video
+            </button>
+          </div>
+
+
+
+      {/* ================= MAIN WORKSPACE ================= */}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) 330px',
+          gap: '24px',
+          alignItems: 'start',
+        }}
+      >
+        {/* ================= LEFT SIDE ================= */}
+
+        <section>
+          {/* WORKSPACE */}
+
+          <div
+            style={{
+              background: '#0f172a',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              border: '1px solid #1e293b',
+              boxShadow:
+                '0 20px 50px rgba(15, 23, 42, 0.15)',
+            }}
+          >
+            {/* WORKSPACE HEADER */}
+
+            <div
+              style={{
+                height: '56px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 18px',
+                borderBottom: '1px solid #1e293b',
+                background: 'rgba(15, 23, 42, 0.9)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <span
+                  style={{
+                    color: '#f8fafc',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                  }}
+                >
+                  3D Preview
+                </span>
+
+                {meshRef.current && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: '#94a3b8',
+                      padding: '4px 8px',
+                      background: '#1e293b',
+                      borderRadius: '999px',
+                    }}
+                  >
+                    MODEL LOADED
+                  </span>
+                )}
+              </div>
+
+              <span
+                style={{
+                  color: '#64748b',
+                  fontSize: '12px',
+                }}
+              >
+                Drag to rotate · Scroll to zoom
+              </span>
+            </div>
+
+            {/* CANVAS AREA */}
+
+            <div
+              style={{
+                position: 'relative',
+                minHeight: '520px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background:
+                  'radial-gradient(circle at center, #1e293b 0%, #0f172a 70%)',
+              }}
+            >
+              {/* EMPTY STATE */}
+
+              {!meshRef.current && status !== 'parsing' && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    zIndex: 2,
+                    textAlign: 'center',
+                    color: '#94a3b8',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '70px',
+                      height: '70px',
+                      margin: '0 auto 16px',
+                      borderRadius: '20px',
+                      background: '#1e293b',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '30px',
+                    }}
+                  >
+                    ◇
+                  </div>
+
+                  <h3
+                    style={{
+                      margin: '0 0 8px',
+                      color: '#e2e8f0',
+                      fontSize: '18px',
+                    }}
+                  >
+                    Upload a 3D model
+                  </h3>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '14px',
+                    }}
+                  >
+                    Your STL model will appear here
+                  </p>
+                </div>
+              )}
+
+              {/* LOADING OVERLAY */}
+
+              {(status === 'parsing' ||
+                status === 'rendering') && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    backdropFilter: 'blur(4px)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 'min(420px, 80%)',
+                      padding: '28px',
+                      background: 'rgba(30, 41, 59, 0.95)',
+                      border: '1px solid #334155',
+                      borderRadius: '18px',
+                      boxShadow:
+                        '0 20px 60px rgba(0, 0, 0, 0.3)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <div>
+                        <p
+                          style={{
+                            margin: 0,
+                            color: 'white',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {status === 'parsing'
+                            ? 'Processing model'
+                            : 'Rendering video'}
+                        </p>
+
+                        <p
+                          style={{
+                            margin: '5px 0 0',
+                            color: '#94a3b8',
+                            fontSize: '13px',
+                          }}
+                        >
+                          {status === 'parsing'
+                            ? 'Optimizing 3D geometry...'
+                            : 'Creating your 360° animation...'}
+                        </p>
+                      </div>
+
+                      <span
+                        style={{
+                          color: '#60a5fa',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {Math.round(progress)}%
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        height: '8px',
+                        background: '#334155',
+                        borderRadius: '999px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${progress}%`,
+                          height: '100%',
+                          borderRadius: '999px',
+                          background:
+                            'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* THREE CANVAS */}
+
+              <canvas
+                ref={canvasRef}
+                width={800}
+                height={600}
+                style={{
+                  width: '100%',
+                  maxWidth: '900px',
+                  height: 'auto',
+                  display: 'block',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* ================= ACTION BAR ================= */}
+
+       
+        </section>
+
+        {/* ================= RIGHT SIDEBAR ================= */}
+
+        <aside
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '18px',
+          }}
+        >
+          {/* MODEL DETAILS */}
+
+          <div
+            style={{
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '18px',
+              padding: '20px',
+              boxShadow:
+                '0 8px 24px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '20px',
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: '15px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Model Details
+                </h3>
+
+                <p
+                  style={{
+                    margin: '4px 0 0',
+                    fontSize: '12px',
+                    color: '#64748b',
+                  }}
+                >
+                  Geometry information
+                </p>
+              </div>
+
+              <span
+                style={{
+                  padding: '5px 9px',
+                  borderRadius: '6px',
+                  background: '#eff6ff',
+                  color: '#2563eb',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}
+              >
+                STL
+              </span>
+            </div>
+
+            {meshRef.current ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '18px',
+                }}
+              >
+                {/* VERTICES */}
+
+                <div>
+                  <p
+                    style={{
+                      margin: '0 0 5px',
+                      fontSize: '12px',
+                      color: '#64748b',
+                    }}
+                  >
+                    Vertices
+                  </p>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '22px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {meshRef.current.geometry
+                      .getAttribute('position')
+                      .count.toLocaleString()}
+                  </p>
+                </div>
+
+                {/* TRIANGLES */}
+
+                <div>
+                  <p
+                    style={{
+                      margin: '0 0 5px',
+                      fontSize: '12px',
+                      color: '#64748b',
+                    }}
+                  >
+                    Triangles
+                  </p>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '22px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {Math.floor(
+                      meshRef.current.geometry.getAttribute(
+                        'position'
+                      ).count / 3
+                    ).toLocaleString()}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    height: '1px',
+                    background: '#e2e8f0',
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '13px',
+                  }}
+                >
+                  <span style={{ color: '#64748b' }}>
+                    Material
+                  </span>
+
+                  <span
+                    style={{
+                      fontWeight: 600,
+                    }}
+                  >
+                    Phong
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '13px',
+                  }}
+                >
+                  <span style={{ color: '#64748b' }}>
+                    Renderer
+                  </span>
+
+                  <span
+                    style={{
+                      fontWeight: 600,
+                    }}
+                  >
+                    WebGL
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '35px 10px',
+                  textAlign: 'center',
+                  color: '#94a3b8',
+                  fontSize: '13px',
+                }}
+              >
+                No model loaded yet
+              </div>
+            )}
+          </div>
+
+          {/* RENDER SETTINGS */}
+
+          <div
+            style={{
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '18px',
+              padding: '20px',
+              boxShadow:
+                '0 8px 24px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            <h3
+              style={{
+                margin: '0 0 18px',
+                fontSize: '15px',
+                fontWeight: 700,
+              }}
+            >
+              Video Settings
+            </h3>
+
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '13px',
+                    color: '#64748b',
+                  }}
+                >
+                  Resolution
+                </span>
+
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                  }}
+                >
+                  800 × 600
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '13px',
+                    color: '#64748b',
+                  }}
+                >
+                  Rotation
+                </span>
+
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                  }}
+                >
+                  360°
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '13px',
+                    color: '#64748b',
+                  }}
+                >
+                  Animation
+                </span>
+
+                <span
+                  style={{
+                    padding: '4px 8px',
+                    background: '#ecfdf5',
+                    color: '#059669',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                  }}
+                >
+                  SMOOTH
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* TIP */}
+
+          <div
+            style={{
+              padding: '18px',
+              borderRadius: '18px',
+              background:
+                'linear-gradient(135deg, #eff6ff, #f5f3ff)',
+              border: '1px solid #dbeafe',
+            }}
+          >
+            <p
+              style={{
+                margin: '0 0 6px',
+                fontWeight: 700,
+                fontSize: '13px',
+              }}
+            >
+              💡 Tip
+            </p>
+
+            <p
+              style={{
+                margin: 0,
+                fontSize: '12px',
+                lineHeight: 1.6,
+                color: '#475569',
+              }}
+            >
+              Large models with millions of vertices may take
+              longer to process and render.
+            </p>
+          </div>
+        </aside>
       </div>
-      
-      {/* Video Result */}
+
+      {/* ================= VIDEO RESULT ================= */}
+
       {status === 'complete' && videoUrl && (
-        <div style={{ textAlign: 'center' }}>
-          <h2 style={{ marginBottom: '10px' }}>Generated Video</h2>
+        <section
+          style={{
+            marginTop: '28px',
+            background: 'white',
+            border: '1px solid #e2e8f0',
+            borderRadius: '20px',
+            padding: '24px',
+            boxShadow:
+              '0 12px 30px rgba(15, 23, 42, 0.06)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '20px',
+              marginBottom: '20px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: '20px',
+                }}
+              >
+                Your video is ready 🎉
+              </h2>
+
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  color: '#64748b',
+                  fontSize: '13px',
+                }}
+              >
+                Preview and download your generated 360° video.
+              </p>
+            </div>
+
+            <button
+              onClick={downloadVideo}
+              style={{
+                padding: '11px 18px',
+                border: 'none',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                background: '#0f172a',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 600,
+              }}
+            >
+              ↓ Download Video
+            </button>
+          </div>
+
           <video
             src={videoUrl}
             controls
             autoPlay
             loop
             style={{
-              maxWidth: '100%',
-              borderRadius: '5px',
-              marginBottom: '10px',
-              backgroundColor: '#f0f0f0'
+              width: '100%',
+              maxHeight: '650px',
+              display: 'block',
+              borderRadius: '14px',
+              background: '#020617',
             }}
           />
-          <br />
-          <button
-            onClick={downloadVideo}
-            style={{
-              padding: '10px 20px',
-              fontSize: '16px',
-              cursor: 'pointer',
-              backgroundColor: '#28a745',
-              color: 'white',
-              border: 'none',
-              borderRadius: '5px'
-            }}
-          >
-            Download Video
-          </button>
-        </div>
-      )}
-      
-      {/* Model Info */}
-      {meshRef.current && (
-        <div style={{
-          marginTop: '20px',
-          padding: '15px',
-          backgroundColor: '#1476d8',   
-          borderRadius: '5px',
-          fontSize: '14px'
-        }}>
-          <h3 style={{ marginTop: '0' }}>Model Information</h3>
-          <p>
-            <strong>Vertices:</strong>{' '}
-            {meshRef.current.geometry.getAttribute('position').count.toLocaleString()}
-          </p>
-          <p>
-            <strong>Triangles:</strong>{' '}
-            {(meshRef.current.geometry.getAttribute('position').count / 3).toLocaleString()}
-          </p>
-          <p>
-            <strong>Material:</strong> MeshPhongMaterial (DoubleSide)
-          </p>
-          <p>
-            <strong>Lighting:</strong> 8-point setup (Ambient + Hemisphere + 6 Directional)
-          </p>
-        </div>
+        </section>
       )}
     </div>
-  );
+
+    {/* ================= RESPONSIVE ================= */}
+
+    <style>{`
+      @media (max-width: 1000px) {
+        main > div > div {
+          grid-template-columns: 1fr !important;
+        }
+      }
+
+      @media (max-width: 600px) {
+        main {
+          padding: 18px 12px !important;
+        }
+
+        h1 {
+          font-size: 22px !important;
+        }
+      }
+    `}</style>
+  </main>
+);
 }
