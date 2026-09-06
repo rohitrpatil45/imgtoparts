@@ -26,15 +26,15 @@ export default function Home() {
     // ============ RENDERER SETUP ============
     const renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: false,
       alpha: false,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true // Important for video capture
+      preserveDrawingBuffer: true// Important for video capture
     });
     
     renderer.setSize(800, 600);
     renderer.setPixelRatio(0.5);
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = false
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -107,18 +107,18 @@ export default function Home() {
     scene.add(ambientLight);
     
     // 2. Hemisphere Light - Natural sky/ground lighting
-    const hemisphereLight = new THREE.HemisphereLight(
-      0xffffff, // Sky color
-      0x444444, // Ground color
-      0.8       // Intensity
-    );
-    scene.add(hemisphereLight);
+    // const hemisphereLight = new THREE.HemisphereLight(
+    //   0xffffff, // Sky color
+    //   0x444444, // Ground color
+    //   0.8       // Intensity
+    // );
+    // scene.add(hemisphereLight);
     
     // 3. Main Directional Light (Front)
     const frontLight = new THREE.DirectionalLight(0xffffff, 1.2);
     frontLight.position.set(0, 5, 10);
-    frontLight.castShadow = true;
-    frontLight.shadow.mapSize.width = 2048;
+    frontLight.castShadow = false;
+    frontLight.shadow.mapSize.width = 2048; 
     frontLight.shadow.mapSize.height = 2048;
     scene.add(frontLight);
     
@@ -128,24 +128,24 @@ export default function Home() {
     scene.add(backLight);
     
     // 5. Left Light
-    const leftLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    leftLight.position.set(-10, 5, 0);
-    scene.add(leftLight);
+    // const leftLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    // leftLight.position.set(-10, 5, 0);
+    // scene.add(leftLight);
     
     // 6. Right Light
-    const rightLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    rightLight.position.set(10, 5, 0);
-    scene.add(rightLight);
+    // const rightLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    // rightLight.position.set(10, 5, 0);
+    // scene.add(rightLight);
     
     // 7. Top Light
-    const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    topLight.position.set(0, 10, 0);
-    scene.add(topLight);
+    // const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    // topLight.position.set(0, 10, 0);
+    // scene.add(topLight);
     
     // 8. Bottom Light (Fixes dark bottom)
-    const bottomLight = new THREE.DirectionalLight(0xffffff, 0.3);
-    bottomLight.position.set(0, -5, 0);
-    scene.add(bottomLight);
+    // const bottomLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    // bottomLight.position.set(0, -5, 0);
+    // scene.add(bottomLight);
   };
 
   // ============ CREATE MATERIAL (FIXED) ============
@@ -171,6 +171,8 @@ export default function Home() {
     
     try {
       const buffer = await file.arrayBuffer();
+      console.log(buffer)
+
       
       let geometry: THREE.BufferGeometry;
       
@@ -178,24 +180,29 @@ export default function Home() {
         console.log('Parsing STL...');
         const loader = new STLLoader();
         geometry = loader.parse(buffer);
-      } else if (file.name.toLowerCase().endsWith('.obj')) {
-        console.log('Parsing OBJ...');
-        const loader = new OBJLoader();
-        const obj = loader.parse(new TextDecoder().decode(buffer));
-        geometry = obj.children[0].geometry;
+      // } else if (file.name.toLowerCase().endsWith('.obj')) {
+      //   console.log('Parsing OBJ...');
+      //   const loader = new OBJLoader();
+      //   const obj = loader.parse(new TextDecoder().decode(buffer));
+      //   geometry = obj.children[0];
       } else {
         throw new Error('Unsupported format');
       }
       
       // ============ GEOMETRY OPTIMIZATION ============
-      console.log('Optimizing geometry...');
-      geometry.center();
-      geometry.computeVertexNormals();
-      geometry.computeBoundingSphere();
-      geometry.computeBoundingBox();
+   console.log('Optimizing geometry...');
+
+geometry.center();
+
+if (!geometry.getAttribute('normal')) {
+  geometry.computeVertexNormals();
+}
+
+geometry.computeBoundingBox();
+geometry.computeBoundingSphere();
       
       // Fix normals for better lighting
-      geometry.normalizeNormals();
+      // geometry.normalizeNormals();
       
       console.log(`Vertices: ${geometry.getAttribute('position').count}`);
       
@@ -297,13 +304,18 @@ export default function Home() {
         rendererRef.current!.render(sceneRef.current!, cameraRef.current!);
         
         // Force canvas update
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.flush?.();
-        }
+        // const ctx = canvas.getContext('2d');
+        // if (ctx) {
+        //   console.log(ctx, "rohit")
+        //   // ctx.flush?.();
+        // }
         
         // Update progress
-        setProgress(50 + ((i + 1) / totalFrames) * 50);
+        if (i % 20 === 0) {
+    setProgress(
+      50 + ((i + 1) / totalFrames) * 50
+    );
+  }
         
         // Wait for next frame
         await new Promise(resolve => setTimeout(resolve, 1000 / fps));
@@ -497,7 +509,7 @@ export default function Home() {
         <div style={{
           marginTop: '20px',
           padding: '15px',
-          backgroundColor: '#f8f9fa',
+          backgroundColor: '#f8f9fa',   
           borderRadius: '5px',
           fontSize: '14px'
         }}>
