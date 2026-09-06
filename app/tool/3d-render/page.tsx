@@ -368,13 +368,13 @@ return (
   <main
     style={{
       minHeight: '100vh',
-      background:
-        'linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f8fafc 100%)',
+     
       color: '#0f172a',
       fontFamily:
         'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       padding: '32px 20px',
-    }}
+    }} className='bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.25),transparent_60%)]" />
+'
   >
     <div
       style={{
@@ -492,7 +492,7 @@ return (
               justifyContent: 'space-between',
               flexWrap: 'wrap',
               padding: '14px',
-              background: 'white',
+              // background: 'white',
               border: '1px solid #e2e8f0',
               borderRadius: '16px',
               boxShadow:
@@ -513,11 +513,11 @@ return (
                 background: '#f8fafc',
               }}
             >
-              ↑ Upload Model
+              Upload Model
 
               <input
                 type="file"
-                accept=".stl,.STL,.obj,.OBJ"
+                accept=".stl,.STL"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
 
@@ -843,7 +843,7 @@ return (
 
           <div
             style={{
-              background: 'white',
+              // background: 'white',
               border: '1px solid #e2e8f0',
               borderRadius: '18px',
               padding: '20px',
@@ -863,7 +863,7 @@ return (
                 <h3
                   style={{
                     margin: 0,
-                    fontSize: '15px',
+                    fontSize: '5px',
                     fontWeight: 700,
                   }}
                 >
@@ -874,7 +874,7 @@ return (
                   style={{
                     margin: '4px 0 0',
                     fontSize: '12px',
-                    color: '#64748b',
+                    color: '#edeef0',
                   }}
                 >
                   Geometry information
@@ -885,8 +885,8 @@ return (
                 style={{
                   padding: '5px 9px',
                   borderRadius: '6px',
-                  background: '#eff6ff',
-                  color: '#2563eb',
+                  // background: '#eff6ff',
+                  color: 'white',
                   fontSize: '11px',
                   fontWeight: 700,
                 }}
@@ -910,7 +910,7 @@ return (
                     style={{
                       margin: '0 0 5px',
                       fontSize: '12px',
-                      color: '#64748b',
+                      color: 'white',
                     }}
                   >
                     Vertices
@@ -921,6 +921,7 @@ return (
                       margin: 0,
                       fontSize: '22px',
                       fontWeight: 700,
+                      color: 'white',
                     }}
                   >
                     {meshRef.current.geometry
@@ -936,7 +937,7 @@ return (
                     style={{
                       margin: '0 0 5px',
                       fontSize: '12px',
-                      color: '#64748b',
+                      color: 'white',
                     }}
                   >
                     Triangles
@@ -947,6 +948,7 @@ return (
                       margin: 0,
                       fontSize: '22px',
                       fontWeight: 700,
+                      color:"white"
                     }}
                   >
                     {Math.floor(
@@ -960,7 +962,7 @@ return (
                 <div
                   style={{
                     height: '1px',
-                    background: '#e2e8f0',
+                    // background: '#e2e8f0',
                   }}
                 />
 
@@ -971,7 +973,7 @@ return (
                     fontSize: '13px',
                   }}
                 >
-                  <span style={{ color: '#64748b' }}>
+                  <span style={{ color: 'white' }}>
                     Material
                   </span>
 
@@ -991,7 +993,7 @@ return (
                     fontSize: '13px',
                   }}
                 >
-                  <span style={{ color: '#64748b' }}>
+                  <span style={{ color: 'white' }}>
                     Renderer
                   </span>
 
@@ -1009,7 +1011,7 @@ return (
                 style={{
                   padding: '35px 10px',
                   textAlign: 'center',
-                  color: '#94a3b8',
+                  color: 'white',
                   fontSize: '13px',
                 }}
               >
@@ -1022,10 +1024,11 @@ return (
 
           <div
             style={{
-              background: 'white',
+              // background: 'white',
               border: '1px solid #e2e8f0',
               borderRadius: '18px',
               padding: '20px',
+              color: 'white',
               boxShadow:
                 '0 8px 24px rgba(15, 23, 42, 0.05)',
             }}
@@ -1057,7 +1060,7 @@ return (
                 <span
                   style={{
                     fontSize: '13px',
-                    color: '#64748b',
+                    color: 'white',
                   }}
                 >
                   Resolution
@@ -1066,6 +1069,7 @@ return (
                 <span
                   style={{
                     fontSize: '13px',
+                    color:'white',
                     fontWeight: 600,
                   }}
                 >
@@ -1083,7 +1087,7 @@ return (
                 <span
                   style={{
                     fontSize: '13px',
-                    color: '#64748b',
+                    color: 'white',
                   }}
                 >
                   Rotation
@@ -1092,6 +1096,7 @@ return (
                 <span
                   style={{
                     fontSize: '13px',
+                    color: 'white',
                     fontWeight: 600,
                   }}
                 >
@@ -1109,7 +1114,7 @@ return (
                 <span
                   style={{
                     fontSize: '13px',
-                    color: '#64748b',
+                    color: 'white',
                   }}
                 >
                   Animation
@@ -1137,8 +1142,7 @@ return (
             style={{
               padding: '18px',
               borderRadius: '18px',
-              background:
-                'linear-gradient(135deg, #eff6ff, #f5f3ff)',
+              
               border: '1px solid #dbeafe',
             }}
           >
@@ -1147,6 +1151,7 @@ return (
                 margin: '0 0 6px',
                 fontWeight: 700,
                 fontSize: '13px',
+                color:'white'
               }}
             >
               💡 Tip
@@ -1157,7 +1162,8 @@ return (
                 margin: 0,
                 fontSize: '12px',
                 lineHeight: 1.6,
-                color: '#475569',
+                background: 'transparent',
+                color: '#e3e7ecea',
               }}
             >
               Large models with millions of vertices may take
