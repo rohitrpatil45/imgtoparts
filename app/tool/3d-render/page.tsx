@@ -33,7 +33,7 @@ export default function Home() {
     });
     
     renderer.setSize(800, 600);
-    renderer.setPixelRatio(1);
+    renderer.setPixelRatio(0.5);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -43,7 +43,7 @@ export default function Home() {
     
     // ============ SCENE SETUP ============
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x50e5eb); // Light gray background
+    scene.background = new THREE.Color(0x142d4c); // Light gray background
     sceneRef.current = scene;
     
     // ============ CAMERA SETUP ============
@@ -63,6 +63,12 @@ export default function Home() {
     // ============ LIGHTING SETUP (FIXED) ============
     setupCompleteLighting(scene);
     
+
+
+
+// trying to make worker theard
+// createWorker();
+
     // ============ ANIMATION LOOP ============
     let autoRotate = true;
     
@@ -70,7 +76,8 @@ export default function Home() {
       animationIdRef.current = requestAnimationFrame(animate);
       
       if (meshRef.current && autoRotate) {
-        meshRef.current.rotation.y += 0.005;
+        // meshRef.current.rotation.z += 0.005;
+        meshRef.current.rotation.x += 0.005;
       }
       
       controls.update();
@@ -145,7 +152,7 @@ export default function Home() {
   const createModelMaterial = () => {
     // Use MeshPhongMaterial for better lighting response
     return new THREE.MeshPhongMaterial({
-      color: 0xcccccc,        // Light gray
+      color: 0xc24d2c,        // Light gray
       specular: 0x333333,     // Subtle specular
       shininess: 30,          // Medium shininess
       side: THREE.DoubleSide, // Show both sides (FIXES BLACK BACK)
@@ -212,7 +219,7 @@ export default function Home() {
       // ============ AUTO-FIT CAMERA ============
       if (geometry.boundingSphere) {
         const radius = geometry.boundingSphere.radius;
-        const distance = radius * 3;
+        const distance = radius * 2;
         
         cameraRef.current!.position.set(
           distance * 0.7,
