@@ -372,7 +372,7 @@ geometry.computeBoundingSphere();
       fontFamily: 'Arial, sans-serif'
     }}>
       <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>
-        STL/OBJ to 360° Video Converter
+        STL to 360° Video Converter
       </h1>
       
       {/* Controls */}
@@ -385,7 +385,7 @@ geometry.computeBoundingSphere();
       }}>
         <input
           type="file"
-          accept=".stl,.obj,.STL,.OBJ"
+          accept=".stl,.STL"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
@@ -509,7 +509,7 @@ geometry.computeBoundingSphere();
         <div style={{
           marginTop: '20px',
           padding: '15px',
-          backgroundColor: '#f8f9fa',   
+          backgroundColor: '#1476d8',   
           borderRadius: '5px',
           fontSize: '14px'
         }}>
